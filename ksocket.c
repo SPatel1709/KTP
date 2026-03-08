@@ -2,6 +2,7 @@
 #include <netinet/ip.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/socket.h>
 #include "ksocket.h"
 
 
@@ -10,7 +11,10 @@ int k_socket(int __domain,int __type,int protocol){
 
     int sockfd;
     if(     1     /*Checks if the SM is empty or not*/)
-    {}
+    {   
+        /*Initialising the UDP socket from here*/
+        sockfd=socket(__domain,SOCK_DGRAM,protocol);
+    }
     else{
         g_error=ENOSPACE;
         sockfd=-1;
