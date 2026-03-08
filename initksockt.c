@@ -1,6 +1,4 @@
-#include <stdio.h>
-#include <pthread.h>
-#include <sys/shm.h>
+
 #include "ksocket.h"
 
 

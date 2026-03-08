@@ -11,7 +11,7 @@ window_t init_window(){
     {
         w.received_ack[wnd]=false;
         w.timeout[wnd]=-1;
-        w.message_sequence_numbers[i]=i+1;
+        w.message_sequence_numbers[wnd]=wnd+1;
     }
     return w;
 }
@@ -97,25 +97,57 @@ ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct 
         return (ssize_t)-1;
     }
 
-    if(1/*Check if the send buffer is full or not IF FULL THEN THIS*/)
-    {
-        g_error=ENOSPACE;
-        pthread_mutex_unlock(&mutex_socket[__fd]);
-        return (ssize_t)-1;
+    /*now here check if there is any space left in the send buffer*/
+    for (int j = SM[__fd].swnd.base, ctr = 0; ctr < BUFFSIZE; j = (j + 1) % BUFFSIZE, ctr++){
+        if (SM[__fd].send_buffer_empty[j]){
+            int cpy;
+            if(__n<MESSAGE_SIZE) cpy=__n;
+            else cpy=MESSAGE_SIZE;
+            memcpy(SM[__fd].send_buffer[j], __buf, cpy);
+            for (int i = cpy; i < MESSAGE_SIZE; i++){
+                SM[__fd].send_buffer[j][i] = '\0';
+            }
+            SM[__fd].send_buffer_empty[j] = false;
+            SM[__fd].swnd.timeout[j] = -1;
+            pthread_mutex_unlock(&mutex_socket[__fd]);
+            return cpy;
+        }
     }
-
-    ssize_t size=sendto(__fd,__buf,__n,__flags,_dest_addr,__addr_len);
-    return size;
+    g_error=ENOSPACE;
+    pthread_mutex_unlock(&mutex_socket[__fd]);
+    return (ssize_t)-1;
 }
 
 
-/* Need to see this how this works*/
+/*Different from above as if it was not obvious ;)*/
 ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
 {
 
+    ktp_socket_t* SM=k_shmat();
+    pthread_mutex_lock(&mutex_socket[__fd]);
+    int rt_bytes;
+    int slot = (SM[__fd].rwnd.base + SM[__fd].rwnd.size) % WINDOW_SIZE;
 
-
+    if(SM[__fd].rwnd.received_ack[slot]){
+        int cpy;
+        if(__n<MESSAGE_SIZE) cpy=__n;
+        else cpy=MESSAGE_SIZE;
+        memcpy(__buf, SM[__fd].recv_buffer[slot], cpy);
+        rt_bytes = strlen((char *)__buf);
+        SM[__fd].rwnd.received_ack[slot] = false;
+        SM[__fd].rwnd.size = (SM[__fd].rwnd.size + 1) % WINDOW_SIZE;
+        if(__addr != NULL && __addr_len != NULL){
+            memcpy(__addr, &SM[__fd].dest_addr, sizeof(struct sockaddr_in));
+            *__addr_len = sizeof(struct sockaddr_in);
+        }
+    }
+    else{
+        rt_bytes = -1;
+        g_error = ENOMESSAGE;
+    }
     
+    pthread_mutex_unlock(&mutex_socket[__fd]);
+    return rt_bytes;
 }
 
 

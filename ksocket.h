@@ -38,6 +38,7 @@ error_t g_error=NOERROR;
 /*Here is the definition of the structure for sliding window implementation*/
 typedef struct{
     int base;
+    int size;
     int next_sequence_number;
     int last_acknowledged;
     int message_sequence_numbers[WINDOW_SIZE]; // send but not acked
@@ -73,7 +74,7 @@ int k_close(ksockfd_t __fd);
 /* 
 here __restrict is like unique pointer of cpp that solely that
 pointer can access the memory and 
-thus the compiler can optimise things aggressively
+thus the compiler can optimise things aggressively, very nice
 */
 ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len);
 ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
