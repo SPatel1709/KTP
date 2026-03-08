@@ -18,9 +18,6 @@
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
-
-typedef int ksockfd_t;
-
 typedef enum error_t{
     ENOSPACE,
     ENOMESSAGE,
@@ -50,10 +47,6 @@ typedef struct {
     char recv_buffer[BUFFSIZE][MESSAGE_SIZE]; // buffer for storing the messages received
     window_t swnd; //sender window
     window_t rwnd; //receiver window
-
-
-
-
 }ktp_socket_t;
 
 int k_socket(int __domain,int __type,int protocol);
