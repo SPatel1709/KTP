@@ -1,8 +1,23 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/ip.h>
+#include <unistd.h>
+#include <assert.h>
+#include <sys/socket.h>
+#include <stdbool.h>
+
 #ifndef H_KSOCKET
 #define H_KSOCKET
 
 #define SOCK_KTP 9999
-
+#define T 5
+#define p 0.3
+#define MESSAGE_SIZE 512 // size of the message in bytes
+#define BUFFSIZE 10 // size of buffer in terms of number of messages
+#define WINDOW_SIZE 10 // same as the buffer size
+#define NUM_SOCKETS 10
 typedef enum error_t{
     ENOSPACE,
     ENOMESSAGE,
@@ -12,6 +27,23 @@ typedef enum error_t{
 
 error_t g_error=NOERROR;
 
+/*Here is the definition of the structure for sliding window implementation*/
+typedef struct{
+    int base;
+    int next_sequence_number;
+    int last_acknowledged;
+    bool received_ack[WINDOW_SIZE]; // this is useful for the receiver
+    time_t timeout[WINDOW_SIZE]; // this is useful for the sender
+}window_t;
+
+typedef struct {
+    bool is_free;// information for free
+    int pid;
+    int sockfd; //actual socket fd
+
+
+
+}ktp_socket_t;
 
 int k_socket(int __domain,int __type,int protocol);
 

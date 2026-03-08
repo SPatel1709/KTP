@@ -1,8 +1,3 @@
-#include <arpa/inet.h>
-#include <netinet/ip.h>
-#include <unistd.h>
-#include <assert.h>
-#include <sys/socket.h>
 #include "ksocket.h"
 
 
@@ -39,12 +34,12 @@ int k_bind(int __fd,const struct sockaddr* __src_addr,socklen_t __src_len,const 
 
 ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len){
     
-    if(/*Check if the dest IP/port matches or not, IT SHOULD NOT MATCH*/){
+    if(1/*Check if the dest IP/port matches or not, IT SHOULD NOT MATCH*/){
         g_error=ENOTBOUND;
         return (ssize_t)-1;
     }
 
-    if(/*Check if the send buffer is full or not IF FULL THEN THIS*/)
+    if(1/*Check if the send buffer is full or not IF FULL THEN THIS*/)
     {
         g_error=ENOSPACE;
         return (ssize_t)-1;
