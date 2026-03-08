@@ -46,6 +46,7 @@ typedef struct{
 
 typedef struct {
     bool is_free;// information for free
+    bool is_closed;
     int pid;
     int sockfd; //actual socket fd
     struct sockaddr_in src_addr;
@@ -62,7 +63,7 @@ pthread_mutex_t mutex_socket[NUM_SOCKETS] = {
     [0 ... NUM_SOCKETS-1] = PTHREAD_MUTEX_INITIALIZER
 };
 
-int k_socket(int __domain,int __type,int protocol);
+ksockfd_t k_socket(int __domain,int __type,int protocol);
 
 /*assuming that ip mixing may occur making my protocol future proof*/
 int k_bind(ksockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port);
