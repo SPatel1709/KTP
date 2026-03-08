@@ -39,29 +39,70 @@ int init_SM(int num_sockets)
 
     printf("%d Sockets initialised\n",num_sockets);
     shmdt((void*)SM);
-    
-    return shmid;
 }
 
 
-void* R_job(){
+void cleanup(int signo){
+    int shmid = k_shmget();
+
+    if (shmid != -1){
+        shmctl(shmid, IPC_RMID, 0);
+        printf("SHM %d removed\n", shmid);
+    }
+
+    if (signo == SIGSEGV){
+        printf("Segmentation fault\n");
+    }
+    exit(0);
+}
+
+void* thread_Garbage(){
+    ktp_socket_t *SM = k_shmat();
+
+    while (1){
+        sleep(T);
+        for (int i = 0; i < NUM_SOCKETS; i++){
+            pthread_mutex_lock(&mutex_socket[i]);
+            if (!SM[i].is_free && !SM[i].is_closed){
+                if (kill(SM[i].pid, 0) == -1){
+                    printf("G: Process %d terminated\n", SM[i].pid);
+                    SM[i].is_closed = true;
+                }
+            }
+            pthread_mutex_unlock(&mutex_socket[i]);
+        }
+    }
+}
+
+
+void* thread_R(){
 
 }
 
-void* S_job(){
+void* thread_S(){
 
 }
 
 
 int main(){
 
-    //initialising threads
-    pthread_t R,S;
-    pthread_create(R,NULL,&R_job,NULL);
-    pthread_create(S,NULL,&S_job,NULL);
+    srand(time(NULL));
 
+    
     //initialising shared memory
-    int SM_id=init_SM(NUM_SOCKETS);
+    init_SM(NUM_SOCKETS);
+    
+    signal(SIGINT,cleanup);
+    signal(SIGSEGV,cleanup);
 
+    
+    //initialising threads
+    pthread_t R,S,Garb;
+    pthread_create(&R,NULL,&thread_R,NULL);
+    pthread_create(&S,NULL,&thread_S,NULL);
+    pthread_create(&Garb,NULL,&thread_Garbage,NULL);
+
+
+    pthread_exit(NULL);    
     return 0;
 }

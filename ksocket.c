@@ -52,7 +52,7 @@ ksockfd_t k_socket(int __domain,int __type,int protocol){
                 SM[i].rwnd = init_window();
             }
             pthread_mutex_unlock(&mutex_socket[i]);
-            
+            k_shmdt((void*)SM);
             return k_sockfd;
         }
 
@@ -61,6 +61,7 @@ ksockfd_t k_socket(int __domain,int __type,int protocol){
     g_error=ENOSPACE;
     sockfd=-1;
 
+    k_shmdt((void*)SM);
     return sockfd;
 }
 
@@ -79,6 +80,7 @@ int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_
 
     pthread_mutex_unlock(&mutex_socket[__fd]);
     int bind_result=bind(__fd,(struct sockaddr*)&SM[__fd].src_addr, sizeof(SM[__fd].src_addr));
+    k_shmdt((void*)SM);
 
     return bind_result;
 }

@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <sys/signal.h>
 #include <sys/shm.h>
 
 #ifndef H_KSOCKET
