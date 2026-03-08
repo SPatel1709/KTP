@@ -3,7 +3,7 @@
 #include <sys/shm.h>
 #include "ksocket.h"
 
-#define FTOK_FILE "ksocket.c"
+
 
 
 // garbage collector
@@ -21,10 +21,36 @@ int init_SM(int num_sockets)
 
     if(shmid<0)
     {
-        fprintf(stderr,"Failed to create shared memory for Sockets\n");
+        fprintf(stderr,"initksocket: Failed shmget\n");
         exit(1);
     }
 
+    ktp_socket_t *SM=(ktp_socket_t*)shmat(shmid,NULL,0);
+
+    if(SM==(void*)-1)
+    {
+        fprintf(stderr,"initksocket: Failed shmat\n");
+    }
+
+    for(int i=0;i<num_sockets;++i)
+    {
+        SM[i].is_free=true;
+        SM[i].rwnd.next_sequence_number=1;
+        SM[i].swnd.next_sequence_number=1;
+        SM[i].swnd.base=1;         
+        
+        SM[i].rwnd.base=-1;   // sus if used or not
+
+        for(int wnd=0;wnd<WINDOW_SIZE;++wnd)
+        {
+            SM[i].rwnd.received_ack[wnd]=false;
+            SM[i].swnd.received_ack[wnd]=false;
+        }
+    }
+
+    printf("%d Sockets initialised\n",num_sockets);
+    shmdt((void*)SM);
+    
     return shmid;
 }
 

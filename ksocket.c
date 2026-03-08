@@ -2,9 +2,20 @@
 
 
 int k_socket(int __domain,int __type,int protocol){
-    assert(__type==SOCK_KTP && "Incorrect Sock type for KTP");
+    assert(__type==SOCK_KTP && __domain==AF_INET && "Incorrect Sock type for KTP");
 
     int sockfd;
+
+
+    ktp_socket_t* SM=k_shmat();
+
+    if(SM==NULL) return -1;
+    
+    for(int i=0;i<NUM_SOCKETS;++i)
+    {
+        
+    }
+
     if(     1     /*Checks if the SM is empty or not*/)
     {   
         /*Initialising the UDP socket from here*/
@@ -14,7 +25,6 @@ int k_socket(int __domain,int __type,int protocol){
         g_error=ENOSPACE;
         sockfd=-1;
     }
-
     return sockfd;
 }
 
@@ -65,4 +75,31 @@ int k_close(__fd)
     /*Clean the shared memory first*/
 
     close(__fd);
+}
+
+
+
+int k_shmget(){
+    key_t token=ftok(FTOK_FILE,'M');
+    return shmget(token,0,0);
+}
+
+ktp_socket_t* k_shmat(){
+    int shmid=k_shmget();
+
+    if(shmid==-1)
+    {
+        return NULL;
+    }
+
+    ktp_socket_t *SM=(ktp_socket_t* )shmat(shmid,NULL,0);
+
+    if(SM==(void*)-1) return NULL;
+
+    return SM;
+}
+
+int k_shmdt(const void* SM)
+{
+    return shmdt(SM);
 }

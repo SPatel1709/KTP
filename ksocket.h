@@ -7,6 +7,8 @@
 #include <assert.h>
 #include <sys/socket.h>
 #include <stdbool.h>
+#include <pthread.h>
+#include <sys/shm.h>
 
 #ifndef H_KSOCKET
 #define H_KSOCKET
@@ -18,9 +20,10 @@
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
-#define SHARED_MEMORY_PATH "/home"
-#define SHARED_MEMORY_ID "ARHAM"
-#define SEMAPHORE_ID "ARHAM_SEM"
+
+#define FTOK_FILE "ksocket.c"
+
+typedef int ksockfd_t;
 
 typedef enum error_t{
     ENOSPACE,
@@ -36,7 +39,7 @@ typedef struct{
     int base;
     int next_sequence_number;
     int last_acknowledged;
-    int message_sequence_numbers[WINDOW_SIZE]; 
+    int message_sequence_numbers[WINDOW_SIZE]; // send but not acked
     bool received_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
 }window_t;
@@ -53,7 +56,10 @@ typedef struct {
     window_t rwnd; //receiver window
 }ktp_socket_t;
 
-typedef int ksockfd_t;
+/* Initialising sockets at compile time */
+pthread_mutex_t mutex_socket[NUM_SOCKETS] = {
+    [0 ... NUM_SOCKETS-1] = PTHREAD_MUTEX_INITIALIZER
+};
 
 int k_socket(int __domain,int __type,int protocol);
 
@@ -68,5 +74,11 @@ thus the compiler can optimise things aggressively
 */
 ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len);
 ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
+
+/* get the shared memory id */
+int k_shmget();
+ktp_socket_t* k_shmat();
+int k_shmdt(const void* __shmaddr);
+
 
 #endif
