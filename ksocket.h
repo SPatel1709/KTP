@@ -18,6 +18,10 @@
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
+#define SHARED_MEMORY_PATH "/home"
+#define SHARED_MEMORY_ID "ARHAM"
+#define SEMAPHORE_ID "ARHAM_SEM"
+
 typedef enum error_t{
     ENOSPACE,
     ENOMESSAGE,
@@ -48,6 +52,8 @@ typedef struct {
     window_t swnd; //sender window
     window_t rwnd; //receiver window
 }ktp_socket_t;
+
+typedef int ksockfd_t;
 
 int k_socket(int __domain,int __type,int protocol);
 
