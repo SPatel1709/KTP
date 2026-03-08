@@ -38,9 +38,9 @@ error_t g_error=NOERROR;
 /*Here is the definition of the structure for sliding window implementation*/
 typedef struct{
     int base;
-    int size;
-    int next_sequence_number;
-    int last_acknowledged;
+    u_int16_t size;
+    u_int16_t next_sequence_number;
+    u_int16_t last_acknowledged;
     int message_sequence_numbers[WINDOW_SIZE]; // send but not acked
     bool received_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
@@ -49,7 +49,7 @@ typedef struct{
 typedef struct {
     bool is_free;// information for free
     bool is_closed;
-    int pid;
+    pid_t pid;
     int sockfd; //actual socket fd
     struct sockaddr_in src_addr;
     struct sockaddr_in dest_addr;
