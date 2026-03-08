@@ -1,16 +1,17 @@
 
 #include "ksocket.h"
 
-
-
-
-// garbage collector
+void log_error(char* msg)
+{
+    fprintf(stderr,"%s\n",msg);
+    exit(EXIT_FAILURE);
+}
 
 int init_SM(int num_sockets)
 {
     if(num_sockets<=0)
     {
-        fprintf(stderr,"Socket number invalid\n");
+        log_error("Socket number invalid");
     }
 
     key_t token=ftok(FTOK_FILE,'M');
@@ -19,15 +20,14 @@ int init_SM(int num_sockets)
 
     if(shmid<0)
     {
-        fprintf(stderr,"initksocket: Failed shmget\n");
-        exit(1);
+        log_error("initksocket: Failed shmget");
     }
 
     ktp_socket_t *SM=(ktp_socket_t*)shmat(shmid,NULL,0);
 
     if(SM==(void*)-1)
     {
-        fprintf(stderr,"initksocket: Failed shmat\n");
+        log_error("initksocket: Failed shmat");
     }
 
     for(int i=0;i<num_sockets;++i)
@@ -49,7 +49,7 @@ void cleanup(int signo){
     }
 
     if (signo == SIGSEGV){
-        printf("Segmentation fault\n");
+        log_error("Segmentation fault");
     }
     exit(0);
 }
