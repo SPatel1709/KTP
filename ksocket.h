@@ -18,6 +18,9 @@
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
+
+typedef int ksockfd_t;
+
 typedef enum error_t{
     ENOSPACE,
     ENOMESSAGE,
@@ -56,15 +59,15 @@ typedef struct {
 int k_socket(int __domain,int __type,int protocol);
 
 /*assuming that ip mixing may occur making my protocol future proof*/
-int k_bind(int __fd,const struct sockaddr* __src_addr,socklen_t __src_len,const struct sockaddr* __dest_addr,socklen_t __dest_len);
-int k_close(int __fd);
+int k_bind(ksockfd_t __fd,const struct sockaddr* __src_addr,socklen_t __src_len,const struct sockaddr* __dest_addr,socklen_t __dest_len);
+int k_close(ksockfd_t __fd);
 
 /* 
 here __restrict is like unique pointer of cpp that solely that
 pointer can access the memory and 
 thus the compiler can optimise things aggressively
 */
-ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len);
-ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
+ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len);
+ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
 
 #endif
