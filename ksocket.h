@@ -32,6 +32,7 @@ typedef struct{
     int base;
     int next_sequence_number;
     int last_acknowledged;
+    int message_sequence_numbers[WINDOW_SIZE]; 
     bool received_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
 }window_t;
@@ -40,6 +41,13 @@ typedef struct {
     bool is_free;// information for free
     int pid;
     int sockfd; //actual socket fd
+    struct sockaddr_in src_addr;
+    struct sockaddr_in dest_addr;
+    char send_buffer[BUFFSIZE][MESSAGE_SIZE]; // buffer for storing the messages to be sent
+    char recv_buffer[BUFFSIZE][MESSAGE_SIZE]; // buffer for storing the messages received
+    window_t swnd; //sender window
+    window_t rwnd; //receiver window
+
 
 
 
