@@ -58,7 +58,6 @@ int k_socket(int __domain,int __type,int protocol){
 
 
 int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port){
-
     ktp_socket_t* SM=k_shmat();
     pthread_mutex_lock(&mutex_socket[__fd]);
     SM[__fd].src_addr.sin_family=AF_INET;
@@ -76,20 +75,25 @@ int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_
 }
 
 
-ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len){
+ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len){
+    ktp_socket_t* SM=k_shmat();
+    pthread_mutex_lock(&mutex_socket[__fd]);
+    struct sockaddr_in temp = *((struct sockaddr_in*)_dest_addr);
     
-    if(1/*Check if the dest IP/port matches or not, IT SHOULD NOT MATCH*/){
+    if(temp.sin_addr.s_addr!=SM[__fd].dest_addr.sin_addr.s_addr || temp.sin_port!=SM[__fd].dest_addr.sin_port){
         g_error=ENOTBOUND;
+        pthread_mutex_unlock(&mutex_socket[__fd]);
         return (ssize_t)-1;
     }
 
     if(1/*Check if the send buffer is full or not IF FULL THEN THIS*/)
     {
         g_error=ENOSPACE;
+        pthread_mutex_unlock(&mutex_socket[__fd]);
         return (ssize_t)-1;
     }
 
-    ssize_t size=sendto(__fd,__buf,__n,__flags,__addr,__addr_len);
+    ssize_t size=sendto(__fd,__buf,__n,__flags,_dest_addr,__addr_len);
     return size;
 }
 

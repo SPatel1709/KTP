@@ -73,7 +73,7 @@ here __restrict is like unique pointer of cpp that solely that
 pointer can access the memory and 
 thus the compiler can optimise things aggressively
 */
-ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *__addr,socklen_t __addr_len);
+ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len);
 ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
 
 /* get the shared memory id */
