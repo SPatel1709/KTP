@@ -35,17 +35,6 @@ int init_SM(int num_sockets)
     for(int i=0;i<num_sockets;++i)
     {
         SM[i].is_free=true;
-        SM[i].rwnd.next_sequence_number=1;
-        SM[i].swnd.next_sequence_number=1;
-        SM[i].swnd.base=1;         
-        
-        SM[i].rwnd.base=-1;   // sus if used or not
-
-        for(int wnd=0;wnd<WINDOW_SIZE;++wnd)
-        {
-            SM[i].rwnd.received_ack[wnd]=false;
-            SM[i].swnd.received_ack[wnd]=false;
-        }
     }
 
     printf("%d Sockets initialised\n",num_sockets);

@@ -1,30 +1,57 @@
 #include "ksocket.h"
 
 
+window_t init_window(){
+    window_t w;
+    w.base=1;
+    w.last_acknowledged=0;
+    w.next_sequence_number=1;
+
+    for(int wnd=0;wnd<WINDOW_SIZE;++wnd)
+    {
+        w.received_ack[wnd]=false;
+        w.timeout[wnd]=-1;
+        w.message_sequence_numbers[i]=i+1;
+    }
+    return w;
+}
+
 int k_socket(int __domain,int __type,int protocol){
     assert(__type==SOCK_KTP && __domain==AF_INET && "Incorrect Sock type for KTP");
 
     int sockfd;
-
-
     ktp_socket_t* SM=k_shmat();
 
     if(SM==NULL) return -1;
     
     for(int i=0;i<NUM_SOCKETS;++i)
     {
-        
-    }
+        pthread_mutex_lock(&mutex_socket[i]);
+        if(SM[i].is_free)
+        {
+            SM[i].is_free=false;
+            SM[i].pid=getpid();            
+            bzero(&SM[i].src_addr, sizeof(SM[i].src_addr));
+            bzero(&SM[i].dest_addr, sizeof(SM[i].dest_addr));
+            for (int j = 0; j < BUFFSIZE; j++){
+                SM[i].send_buffer_empty[j] = true;
+            }
+            SM[i].swnd = init_window();
+            SM[i].rwnd = init_window();
 
-    if(     1     /*Checks if the SM is empty or not*/)
-    {   
-        /*Initialising the UDP socket from here*/
-        sockfd=socket(__domain,SOCK_DGRAM,protocol);
+
+            sockfd=socket(__domain,SOCK_DGRAM,protocol);
+
+
+            pthread_mutex_unlock(&mutex_socket[i]);
+            return sockfd;
+        }
+
+        pthread_mutex_unlock(&mutex_socket[i]);
     }
-    else{
-        g_error=ENOSPACE;
-        sockfd=-1;
-    }
+    g_error=ENOSPACE;
+    sockfd=-1;
+    
     return sockfd;
 }
 

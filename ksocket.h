@@ -50,6 +50,7 @@ typedef struct {
     int sockfd; //actual socket fd
     struct sockaddr_in src_addr;
     struct sockaddr_in dest_addr;
+    bool send_buffer_empty[BUFFSIZE];
     char send_buffer[BUFFSIZE][MESSAGE_SIZE]; // buffer for storing the messages to be sent
     char recv_buffer[BUFFSIZE][MESSAGE_SIZE]; // buffer for storing the messages received
     window_t swnd; //sender window
@@ -79,6 +80,8 @@ ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flag
 int k_shmget();
 ktp_socket_t* k_shmat();
 int k_shmdt(const void* __shmaddr);
+
+window_t k_window();
 
 
 #endif
