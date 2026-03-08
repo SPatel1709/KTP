@@ -64,7 +64,7 @@ pthread_mutex_t mutex_socket[NUM_SOCKETS] = {
 int k_socket(int __domain,int __type,int protocol);
 
 /*assuming that ip mixing may occur making my protocol future proof*/
-int k_bind(ksockfd_t __fd,const struct sockaddr* __src_addr,socklen_t __src_len,const struct sockaddr* __dest_addr,socklen_t __dest_len);
+int k_bind(ksockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port);
 int k_close(ksockfd_t __fd);
 
 /* 

@@ -30,14 +30,21 @@ int k_socket(int __domain,int __type,int protocol){
 
 
 
-int k_bind(int __fd,const struct sockaddr* __src_addr,socklen_t __src_len,const struct sockaddr* __dest_addr,socklen_t __dest_len){
+int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port){
 
-    int bind_result=bind(__fd,__src_addr,__src_len);
+    ktp_socket_t* SM=k_shmat();
+    pthread_mutex_lock(&mutex_socket[__fd]);
+    SM[__fd].src_addr.sin_family=AF_INET;
+    SM[__fd].src_addr.sin_port=htons(__src_port);
+    SM[__fd].src_addr.sin_addr.s_addr=inet_addr(__src_ip);
 
-    if(bind_result>0)
-    {
-        /*update the things in the SM*/
-    }
+    SM[__fd].dest_addr.sin_family=AF_INET;
+    SM[__fd].dest_addr.sin_port=htons(__dest_port);
+    SM[__fd].dest_addr.sin_addr.s_addr=inet_addr(__dest_ip);
+
+    pthread_mutex_unlock(&mutex_socket[__fd]);
+    int bind_result=bind(__fd,(struct sockaddr*)&SM[__fd].src_addr, sizeof(SM[__fd].src_addr));
+
     return bind_result;
 }
 
