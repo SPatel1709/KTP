@@ -27,10 +27,9 @@
 #define T 5
 #define p 0.3
 #define MSG_SIZE 512
-#define MESGTYPE 5
-#define SEQ_SIZE 2
-#define RECV_BUFF_NUM 1
-#define PKT_SIZE (MSG_SIZE+MESGTYPE+SEQ_SIZE+RECV_BUFF_NUM) // size of the message in bytes
+#define MSG_TYPE 5
+#define HEADER_SIZE (sizeof(u_int16_t)+sizeof(u_int8_t)+MSG_TYPE)
+#define PKT_SIZE (MSG_SIZE+HEADER_SIZE) // size of the message in bytes
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
@@ -101,7 +100,5 @@ int k_shmget();
 ktp_socket_t* k_shmat();
 int k_shmdt(const void* __shmaddr);
 
-window_t k_window();
-
-
+bool drop_message(double P);
 #endif

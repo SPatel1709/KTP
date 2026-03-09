@@ -52,7 +52,18 @@ void cleanup(int signo){
 
 /* Data manipulations*/
 
-void get_message();
+void get_message(char buf[], char *type, uint16_t *seq, uint8_t *rwnd, char *msg)
+{
+    memcpy(type, buf, MSG_TYPE);
+
+    uint16_t temp;
+    memcpy(&temp, buf + MSG_TYPE, sizeof(uint16_t));
+    *seq = ntohs(temp);
+
+    //rwnd is just one byte as window is just of 10 size
+    *rwnd = buf[MSG_TYPE + sizeof(uint16_t)];
+    memcpy(msg,buf+HEADER_SIZE,MSG_SIZE);
+}
 
 ssize_t send_pkt();
 
@@ -82,8 +93,6 @@ void* thread_Garbage(){
 /*
     socket and bind
 */
-
-
 int socket_bind(ktp_socket_t* slot,fd_set *master,int *maxfd)
 {
     int k_sockfd=socket(AF_INET,SOCK_DGRAM,0);
@@ -136,7 +145,7 @@ void handle_ack(ktp_socket_t *slot, uint16_t seq, uint16_t rwnd)
     slot->swnd.size = rwnd;
 }
 
-void handle_data(ktp_socket_t *slot, k_sockfd_t recv_socket, uint16_t seq, char *msg)
+void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
 {
     slot->no_space = false;
     bool is_duplicate = true;
@@ -179,7 +188,7 @@ void handle_data(ktp_socket_t *slot, k_sockfd_t recv_socket, uint16_t seq, char 
 
                     if(slot->rwnd.size == 0) slot->no_space = true;
 
-                    printf("[THREAD R] (SENT): <ACK %d, RWND %d> ksocket %d\n", slot->rwnd.last_ack, slot->rwnd.size, recv_socket);
+                    printf("[THREAD R] (SENT): <ACK %d, RWND %d> ksocket %d\n", slot->rwnd.last_ack, slot->rwnd.size, slot_idx);
                     if(send_pkt() < 0)
                         fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
                 }
@@ -190,14 +199,14 @@ void handle_data(ktp_socket_t *slot, k_sockfd_t recv_socket, uint16_t seq, char 
 
     if(is_duplicate)
     {
-        printf("[THREAD R] (DUP MSG): SEQ %u (SENT): <ACK %d, RWND %d> ksocket %d\n", seq, slot->rwnd.last_ack, slot->rwnd.size, recv_socket);
+        printf("[THREAD R] (DUP MSG): SEQ %u (SENT): <ACK %d, RWND %d> ksocket %d\n", seq, slot->rwnd.last_ack, slot->rwnd.size, slot_idx);
         if(send_pkt() < 0)
             fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
     }
 }
 
 
-void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,char* buffer,struct sockaddr_in send_addr){
+void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,char buffer[],struct sockaddr_in send_addr){
     if(recv_bytes<0)
     {
         fprintf(stderr,"(ERROR) [handle_buffer]: recv_bytes\n");
@@ -207,49 +216,45 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
     /* If the connection gets closed */
     if(recv_bytes==0)
     {
-        phtread_mutex_lock(&mutex_socket[recv_socket]);
         if(!(slot->is_free) && slot->is_bound)
         {
             printf("[THREAD R]: Connection Closed by other end\n");
             slot->is_closed=true;
         }
-        pthread_mutex_unlock(&mutex_socket[recv_socket]);
         return;
     }
 
-    /* If the message is actual message */
-    pthread_mutex_lock(&mutex_socket[recv_socket]);
     
     if(!slot->is_free && slot->is_bound)
     {
+        char type[MSG_TYPE+1],msg[MSG_SIZE];
+        u_int16_t seq;
+        u_int8_t rwnd;
+        get_message(buffer,type,&seq,&rwnd,msg);
+
+
         if(drop_message(p))
         {
-            printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n",recv_socket,);
-            pthread_mutex_unlock(&mutex_socket[recv_socket]);
+            printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n", slot_idx, type, seq);
             return;
         }
 
-        if(strcmp(type,"DATA")==0)      handle_data(slot,recv_socket,seq,msg);
+        if(strcmp(type,"DATA")==0)      handle_data(slot, slot_idx, seq, msg);
         
-        else if(strcmp(type,"ACK")==0)  handle_ack(slot,seq,rwnd);
+        else if(strcmp(type,"ACK")==0)  handle_ack(slot, seq, rwnd);
 
         else if (strcmp(type, "FIN") == 0)
         {
-            printf("[THREAD R] (SENT FIN): ksocket %d\n", recv_socket);
-            int send_fin_ack = send_pkt();
-
-            if (send_fin_ack < 0)
-            {
+            printf("[THREAD R] (SENT FIN): ksocket %d\n", slot_idx);
+            if(send_pkt() < 0)
                 fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
-            }
-
-            close_socket(recv_socket);
+            close_socket(slot_idx);
         }
 
         else if (strcmp(type, "FACK") == 0)
         {
-            printf("[THREAD R] (FACK RECV) : ksocket %d", recv_socket);
-            close_socket(recv_socket);
+            printf("[THREAD R] (FACK RECV): ksocket %d\n", slot_idx);
+            close_socket(slot_idx);
         }
 
         else
@@ -257,8 +262,6 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
             fprintf(stderr, "(ERROR) [handle_buffer] : INVALID MSG TYPE\n");
         }
     }
-
-        pthread_mutex_unlock(&mutex_socket[recv_socket]);
 }
 
 
@@ -284,7 +287,7 @@ void* thread_R(){
 
 
         int recv_socket=-1;
-        int recv_bytes=-1;
+        ssize_t recv_bytes=-1;
         struct sockaddr_in send_addr;
         socklen_t addr_len=sizeof(send_addr);
 
@@ -298,13 +301,13 @@ void* thread_R(){
                 recv_bytes=recvfrom(SM[i].sockfd,buffer,PKT_SIZE,0,(struct sockaddr *)&send_addr,&addr_len);
             }
 
-            pthread_mutex_unlock(&mutex_socket[i]);
-
             if(recv_socket!=-1)
             {
-                handle_buffer(&SM[i],recv_socket,recv_bytes,buffer,send_addr);
+                handle_buffer(&SM[i],i,recv_bytes,buffer,send_addr);
+                pthread_mutex_unlock(&mutex_socket[i]);
                 break;
             }
+            pthread_mutex_unlock(&mutex_socket[i]);
         }
 
         // No socket was bounded if it was not free

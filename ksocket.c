@@ -203,3 +203,9 @@ int k_shmdt(const void* SM)
 {
     return shmdt(SM);
 }
+
+bool drop_message(double P)
+{
+    double r=(float)rand()/(float)RAND_MAX;
+    return r<P;
+}
