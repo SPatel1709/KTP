@@ -34,8 +34,7 @@
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
-#define MAX_SEQ MAX_SEQ
-
+#define MAX_SEQ 65535
 #define FTOK_FILE "ksocket.c"
 
 typedef int k_sockfd_t;
