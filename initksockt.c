@@ -170,20 +170,8 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
                         
                         is_duplicate=false;
 
-                        int last_ack=-1;
-                        for (int ct = 0; ct < slot->rwnd.size; ct++) {
-                            int k = (slot->rwnd.base + ct)%WINDOW_SIZE;
-
-                            if (!slot->rwnd.recv_ack[k])
-                                break;
-
-                            last_ack = k;
-                        }
-
-                        if(last_ack==-1)
-                        {
-                            slot->rwnd.last_acknowledged
-                        }
+                        int last_
+                    }
                 }
             }
 
@@ -280,7 +268,8 @@ void* thread_R(){
      }
 }
 
-void* thread_S(){''
+void* thread_S(){
+    
 
 }
 
