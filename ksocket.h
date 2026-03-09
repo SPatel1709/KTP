@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <netinet/ip.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 #include <assert.h>
@@ -32,7 +33,7 @@
 
 #define FTOK_FILE "ksocket.c"
 
-typedef int ksockfd_t;
+typedef int k_sockfd_t;
 
 typedef enum error_t{
     ENOSPACE,
@@ -57,6 +58,8 @@ typedef struct{
 typedef struct {
     bool is_free;// information for free
     bool is_closed;
+    bool is_bound;
+    bool no_space;
     pid_t pid;
     int sockfd; //actual socket fd
     struct sockaddr_in src_addr;
@@ -73,19 +76,19 @@ pthread_mutex_t mutex_socket[NUM_SOCKETS] = {
     [0 ... NUM_SOCKETS-1] = PTHREAD_MUTEX_INITIALIZER
 };
 
-ksockfd_t k_socket(int __domain,int __type,int protocol);
+k_sockfd_t k_socket(int __domain,int __type,int protocol);
 
 /*assuming that ip mixing may occur making my protocol future proof*/
-int k_bind(ksockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port);
-int k_close(ksockfd_t __fd);
+int k_bind(k_sockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port);
+int k_close(k_sockfd_t __fd);
 
 /* 
 here __restrict is like unique pointer of cpp that solely that
 pointer can access the memory and 
 thus the compiler can optimise things aggressively, very nice
 */
-ssize_t k_sendto(ksockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len);
-ssize_t k_recvfrom(ksockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
+ssize_t k_sendto(k_sockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len);
+ssize_t k_recvfrom(k_sockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
 
 /* get the shared memory id */
 int k_shmget();

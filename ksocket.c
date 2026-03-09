@@ -16,7 +16,7 @@ window_t init_window(){
     return w;
 }
 
-ksockfd_t k_socket(int __domain,int __type,int protocol){
+k_sockfd_t k_socket(int __domain,int __type,int protocol){
     assert(__type==SOCK_KTP && __domain==AF_INET && "Incorrect Sock type for KTP");
 
     int sockfd;
@@ -41,6 +41,8 @@ ksockfd_t k_socket(int __domain,int __type,int protocol){
                 SM[i].sockfd = sockfd;
                 SM[i].is_free = false;
                 SM[i].is_closed=false;
+                SM[i].is_bound=false;
+                SM[i].no_space=false;
                 SM[i].pid = getpid();
                 memset(&SM[i].src_addr, 0, sizeof(SM[i].src_addr));
                 memset(&SM[i].dest_addr, 0, sizeof(SM[i].dest_addr));
@@ -151,7 +153,7 @@ ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,int __flags,stru
 }
 
 
-int k_close(ksockfd_t __fd)
+int k_close(k_sockfd_t __fd)
 {
     /*Clean the shared memory first*/
 
