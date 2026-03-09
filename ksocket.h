@@ -49,8 +49,8 @@ error_t g_error=NOERROR;
 typedef struct{
     int base;
     u_int16_t size;
-    u_int16_t next_sequence_number;
-    u_int16_t last_acknowledged;
+    u_int16_t nxt_seq_num;
+    u_int16_t last_ack;
     int msg_seq_num[WINDOW_SIZE]; // send but not acked
     bool recv_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
