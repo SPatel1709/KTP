@@ -157,14 +157,21 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
 
             slot->no_space=false;
 
-            bool duplicate=true;
-
+            bool is_duplicate=true;
 
             for(int i=slot->rwnd.base,cnt=0;cnt<slot->rwnd.size;i=(i+1)%WINDOW_SIZE,++cnt)
             {
-                if(slot->rwnd.message_sequence_numbers[i]==seq)
+                if(slot->rwnd.msg_seq_num[i]==seq)
                 {
-                    if(!slot->rwnd.received)
+                    if(!slot->rwnd.recv_ack[i])
+                    {
+                        slot->rwnd.recv_ack[i]=true;
+                        memcpy(slot->recv_buffer[i],msg,MSG_SIZE);
+                        
+                        is_duplicate=false;
+
+                        int last_
+                    }
                 }
             }
 
@@ -193,7 +200,7 @@ void* thread_R(){
 
      ktp_socket_t* SM=k_shmat();
       
-     char buffer[MESSAGE_SIZE];
+     char buffer[PKT_SIZE];
 
      while(1)
      {
@@ -216,7 +223,7 @@ void* thread_R(){
             if(!SM[i].is_free && SM[i].is_bound && FD_ISSET(SM[i].sockfd,&read_set))
             {
                 recv_socket=SM[i].sockfd;
-                recv_bytes=recvfrom(SM[i].sockfd,buffer,MESSAGE_SIZE,0,(struct sockaddr *)&send_addr,&addr_len);
+                recv_bytes=recvfrom(SM[i].sockfd,buffer,PKT_SIZE,0,(struct sockaddr *)&send_addr,&addr_len);
             }
 
             pthread_mutex_unlock(&mutex_socket[i]);
