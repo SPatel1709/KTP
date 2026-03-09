@@ -26,8 +26,11 @@
 #define SOCK_KTP 9999
 #define T 5
 #define p 0.3
-#define PKT_SIZE 512 // size of the message in bytes
-#define MSG_SIZE MSG_SIZE
+#define MSG_SIZE 512
+#define MESGTYPE 5
+#define SEQ_SIZE 2
+#define RECV_BUFF_NUM 1
+#define PKT_SIZE (MSG_SIZE+MESGTYPE+SEQ_SIZE+RECV_BUFF_NUM) // size of the message in bytes
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
@@ -50,7 +53,7 @@ typedef struct{
     int base;
     u_int16_t size;
     u_int16_t nxt_seq_num;
-    u_int16_t last_ack;
+    u_int16_t last_ack;// this is useful for the receiver
     int msg_seq_num[WINDOW_SIZE]; // send but not acked
     bool recv_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
@@ -70,6 +73,8 @@ typedef struct {
     char recv_buffer[BUFFSIZE][PKT_SIZE]; // buffer for storing the messages received
     window_t swnd; //sender window
     window_t rwnd; //receiver window
+    //fin bullshit added later
+    time_t fin_timeout;
 }ktp_socket_t;
 
 /* Initialising sockets at compile time */

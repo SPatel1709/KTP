@@ -189,6 +189,15 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
 
 }
 
+int check_timeout(ktp_socket_t* slot){
+    time_t curr=time(NULL);
+    time_t timeout=slot->swnd.timeout[slot->swnd.base];
+    if(timeout!=-1 && curr-timeout>=T){
+        return 1;
+    }
+    return 0;
+}
+
 
 void* thread_R(){
 
@@ -269,9 +278,72 @@ void* thread_R(){
 }
 
 void* thread_S(){
-    
+    ktp_socket_t* SM=k_shmat();
+    while(1){
+        sleep(T/2);
+        for(int i=0;i<NUM_SOCKETS;i++){//check for any socket that is not free and is bound
+            pthread_mutex_lock(&mutex_socket[i]);
+            if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
+                int timeout=check_timeout(&SM[i]);
+                if(timeout){
+                    // now travwrse the window and resend all the messages that are not acked
+                    for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
+                        //send all the messages, no need to check for ack
+                        if(SM[i].swnd.timeout[j]!=-1){
+                            printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
+                            int send_bytes=send_packet();// function to be implemented later
+                        }
+                        SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
+                    }
+                }
+            }
+            else if(!SM[i].is_free && SM[i].is_bound && SM[i].is_closed){
+                // for sending the FIN packet
+                // this thread sends FIN, and thread R will send FIN-ACK
+                if(SM[i].fin_timeout==-1){
+                    // first fin send
+                    printf("[THREAD S]: Sending FIN for Ksocket %d\n",i);
+                    int send_bytes=send_packet();// function to be implemented later
+                    SM[i].fin_timeout=time(NULL); //this is not actually the timeout, variable name peace
+                }
+                else{
+                    time_t curr=time(NULL);
+                    if(curr-SM[i].fin_timeout>=T){
+                        // resend fin
+                        printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n",i);
+                        int send_bytes=send_packet();// function to be implemented later
+                        SM[i].fin_timeout=curr;
+                    }
+                }
+            }
+            pthread_mutex_unlock(&mutex_socket[i]);
 
+        }
+        /*It then checks the current swnd for each of the KTP sockets and determines whether there is a
+            pending message from the sender-side message buffer that can be sent. If so, it sends that
+            message through the UDP sendto() call for the corresponding UDP socket and updates the
+            send timestamp.*/
+        // i forgot to implement this, implementing this below
+        for(int i=0;i<NUM_SOCKETS;i++){
+            pthread_mutex_lock(&mutex_socket[i]);
+            if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
+                for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
+                    if(SM[i].swnd.timeout[j]==-1)
+                    {
+                        // if the message has not been sent before, send it and set the timeout
+                        printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
+                        int send_bytes=send_packet();// function to be implemented later
+                        SM[i].swnd.timeout[j]=time(NULL)+T;//
+                    }
+                }
+            }
+            pthread_mutex_unlock(&mutex_socket[i]); 
+        }
+
+    }
 }
+
+
 
 
 int main(){
