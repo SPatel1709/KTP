@@ -7,38 +7,30 @@ void log_error(char* msg)
     exit(EXIT_FAILURE);
 }
 
-int init_SM(int num_sockets)
+
+/* Memory Managers here*/
+void init_SM(int num_sockets)
 {
-    if(num_sockets<=0)
+    if (num_sockets <= 0)    log_error("Socket number invalid");
+    key_t token = ftok(FTOK_FILE, 'M');
+
+
+    int shmid = shmget(token, num_sockets * sizeof(ktp_socket_t), IPC_EXCL);
+    if (shmid < 0)          log_error("initksocket: Failed shmget");
+
+
+    ktp_socket_t *SM = (ktp_socket_t *)shmat(shmid, NULL, 0);
+    if (SM == (void *)-1)   log_error("initksocket: Failed shmat");
+
+
+    for (int i = 0; i < num_sockets; ++i)
     {
-        log_error("Socket number invalid");
+        SM[i].is_free = true;
     }
 
-    key_t token=ftok(FTOK_FILE,'M');
-    
-    int shmid=shmget(token,num_sockets*sizeof(ktp_socket_t),IPC_EXCL);
-
-    if(shmid<0)
-    {
-        log_error("initksocket: Failed shmget");
-    }
-
-    ktp_socket_t *SM=(ktp_socket_t*)shmat(shmid,NULL,0);
-
-    if(SM==(void*)-1)
-    {
-        log_error("initksocket: Failed shmat");
-    }
-
-    for(int i=0;i<num_sockets;++i)
-    {
-        SM[i].is_free=true;
-    }
-
-    printf("%d Sockets initialised\n",num_sockets);
-    shmdt((void*)SM);
+    printf("%d Sockets initialised\n", num_sockets);
+    shmdt((void *)SM);
 }
-
 
 void cleanup(int signo){
     int shmid = k_shmget();
@@ -51,8 +43,20 @@ void cleanup(int signo){
     if (signo == SIGSEGV){
         log_error("Segmentation fault");
     }
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
+
+
+/* Data manipulations*/
+
+void get_message();
+
+ssize_t send_data();
+
+
+
+
+/* Thread logic here */
 
 void* thread_Garbage(){
     ktp_socket_t *SM = k_shmat();
