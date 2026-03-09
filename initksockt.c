@@ -280,7 +280,7 @@ void* thread_R(){
      }
 }
 
-void* thread_S(){
+void* thread_S(){''
 
 }
 
