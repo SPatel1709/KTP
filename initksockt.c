@@ -54,12 +54,7 @@ void cleanup(int signo){
 
 void get_message();
 
-ssize_t send_data();
-
-ssize_t send_ack();
-
-
-
+ssize_t send_pkt();
 
 
 
@@ -118,6 +113,89 @@ int socket_bind(ktp_socket_t* slot,fd_set *master,int *maxfd)
     return 0;
 }
 
+void handle_ack(ktp_socket_t *slot, uint16_t seq, uint16_t rwnd)
+{
+    for(int counter = 0; counter < slot->swnd.size; ++counter)
+    {
+        int i = (slot->swnd.base + counter) % WINDOW_SIZE;
+
+        if(slot->swnd.msg_seq_num[i] == seq)
+        {
+            for(int k = slot->swnd.base; ; k = (k+1) % WINDOW_SIZE)
+            {
+                slot->swnd.timeout[k] = -1;
+                slot->send_buffer_empty[k] = true;
+                slot->swnd.msg_seq_num[k] = slot->swnd.nxt_seq_num % MAX_SEQ + 1;
+                slot->swnd.nxt_seq_num = slot->swnd.msg_seq_num[k];
+                if(k == i) break;
+            }
+            slot->swnd.base = (i + 1) % WINDOW_SIZE;
+            break;
+        }
+    }
+    slot->swnd.size = rwnd;
+}
+
+void handle_data(ktp_socket_t *slot, k_sockfd_t recv_socket, uint16_t seq, char *msg)
+{
+    slot->no_space = false;
+    bool is_duplicate = true;
+
+    for(int cnt = 0; cnt < slot->rwnd.size; ++cnt)
+    {
+        int i = (slot->rwnd.base + cnt) % WINDOW_SIZE;
+
+        if(slot->rwnd.msg_seq_num[i] == seq)
+        {
+            if(!slot->rwnd.recv_ack[i])
+            {
+                slot->rwnd.recv_ack[i] = true;
+                memcpy(slot->recv_buffer[i], msg, MSG_SIZE);
+                is_duplicate = false;
+
+                int last_ack = -1;
+                for(int counter = 0; counter < slot->rwnd.size; counter++)
+                {
+                    int k = (slot->rwnd.base + counter) % WINDOW_SIZE;
+                    if(!slot->rwnd.recv_ack[k]) break;
+                    last_ack = k;
+                }
+
+                if(last_ack != -1)
+                {
+                    int slots_consumed = (last_ack - slot->rwnd.base + WINDOW_SIZE) % WINDOW_SIZE + 1;
+                    slot->rwnd.last_ack = slot->rwnd.msg_seq_num[last_ack];
+
+                    for(int ct = 0; ct < slots_consumed; ct++)
+                    {
+                        int k = (slot->rwnd.base + ct) % WINDOW_SIZE;
+                        slot->rwnd.recv_ack[k] = false;
+                        slot->rwnd.msg_seq_num[k] = slot->rwnd.nxt_seq_num % MAX_SEQ + 1;
+                        slot->rwnd.nxt_seq_num = slot->rwnd.msg_seq_num[k];
+                    }
+
+                    slot->rwnd.base = (last_ack + 1) % WINDOW_SIZE;
+                    slot->rwnd.size -= slots_consumed;
+
+                    if(slot->rwnd.size == 0) slot->no_space = true;
+
+                    printf("[THREAD R] (SENT): <ACK %d, RWND %d> ksocket %d\n", slot->rwnd.last_ack, slot->rwnd.size, recv_socket);
+                    if(send_pkt() < 0)
+                        fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
+                }
+            }
+            break;
+        }
+    }
+
+    if(is_duplicate)
+    {
+        printf("[THREAD R] (DUP MSG): SEQ %u (SENT): <ACK %d, RWND %d> ksocket %d\n", seq, slot->rwnd.last_ack, slot->rwnd.size, recv_socket);
+        if(send_pkt() < 0)
+            fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
+    }
+}
+
 
 void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,char* buffer,struct sockaddr_in send_addr){
     if(recv_bytes<0)
@@ -146,56 +224,41 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t recv_socket,ssize_t recv_bytes,
     {
         if(drop_message(p))
         {
-            printf("[DROPPED]: ksocket %d, Type: %s, Seq: %d\n",recv_socket,);
+            printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n",recv_socket,);
             pthread_mutex_unlock(&mutex_socket[recv_socket]);
             return;
         }
 
-        if(strcmp(type,"DATA")==0)
+        if(strcmp(type,"DATA")==0)      handle_data(slot,recv_socket,seq,msg);
+        
+        else if(strcmp(type,"ACK")==0)  handle_ack(slot,seq,rwnd);
+
+        else if (strcmp(type, "FIN") == 0)
         {
-            printf("[THREAD R]: Data Received Ksocket: %d Seq: %d\n",recv_socket,seq);
+            printf("[THREAD R] (SENT FIN): ksocket %d\n", recv_socket);
+            int send_fin_ack = send_pkt();
 
-            slot->no_space=false;
-
-            bool is_duplicate=true;
-
-            for(int i=slot->rwnd.base,cnt=0;cnt<slot->rwnd.size;i=(i+1)%WINDOW_SIZE,++cnt)
+            if (send_fin_ack < 0)
             {
-                if(slot->rwnd.msg_seq_num[i]==seq)
-                {
-                    if(!slot->rwnd.recv_ack[i])
-                    {
-                        slot->rwnd.recv_ack[i]=true;
-                        memcpy(slot->recv_buffer[i],msg,MSG_SIZE);
-                        
-                        is_duplicate=false;
-
-                        int last_
-                    }
-                }
+                fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
             }
 
+            close_socket(recv_socket);
         }
 
+        else if (strcmp(type, "FACK") == 0)
+        {
+            printf("[THREAD R] (FACK RECV) : ksocket %d", recv_socket);
+            close_socket(recv_socket);
+        }
 
+        else
+        {
+            fprintf(stderr, "(ERROR) [handle_buffer] : INVALID MSG TYPE\n");
+        }
     }
-    
 
-
-
-
-
-
-
-}
-
-int check_timeout(ktp_socket_t* slot){
-    time_t curr=time(NULL);
-    time_t timeout=slot->swnd.timeout[slot->swnd.base];
-    if(timeout!=-1 && curr-timeout>=T){
-        return 1;
-    }
-    return 0;
+        pthread_mutex_unlock(&mutex_socket[recv_socket]);
 }
 
 
@@ -278,72 +341,8 @@ void* thread_R(){
 }
 
 void* thread_S(){
-    ktp_socket_t* SM=k_shmat();
-    while(1){
-        sleep(T/2);
-        for(int i=0;i<NUM_SOCKETS;i++){//check for any socket that is not free and is bound
-            pthread_mutex_lock(&mutex_socket[i]);
-            if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
-                int timeout=check_timeout(&SM[i]);
-                if(timeout){
-                    // now travwrse the window and resend all the messages that are not acked
-                    for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
-                        //send all the messages, no need to check for ack
-                        if(SM[i].swnd.timeout[j]!=-1){
-                            printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                            int send_bytes=send_packet();// function to be implemented later
-                        }
-                        SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
-                    }
-                }
-            }
-            else if(!SM[i].is_free && SM[i].is_bound && SM[i].is_closed){
-                // for sending the FIN packet
-                // this thread sends FIN, and thread R will send FIN-ACK
-                if(SM[i].fin_timeout==-1){
-                    // first fin send
-                    printf("[THREAD S]: Sending FIN for Ksocket %d\n",i);
-                    int send_bytes=send_packet();// function to be implemented later
-                    SM[i].fin_timeout=time(NULL); //this is not actually the timeout, variable name peace
-                }
-                else{
-                    time_t curr=time(NULL);
-                    if(curr-SM[i].fin_timeout>=T){
-                        // resend fin
-                        printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n",i);
-                        int send_bytes=send_packet();// function to be implemented later
-                        SM[i].fin_timeout=curr;
-                    }
-                }
-            }
-            pthread_mutex_unlock(&mutex_socket[i]);
 
-        }
-        /*It then checks the current swnd for each of the KTP sockets and determines whether there is a
-            pending message from the sender-side message buffer that can be sent. If so, it sends that
-            message through the UDP sendto() call for the corresponding UDP socket and updates the
-            send timestamp.*/
-        // i forgot to implement this, implementing this below
-        for(int i=0;i<NUM_SOCKETS;i++){
-            pthread_mutex_lock(&mutex_socket[i]);
-            if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
-                for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
-                    if(SM[i].swnd.timeout[j]==-1)
-                    {
-                        // if the message has not been sent before, send it and set the timeout
-                        printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                        int send_bytes=send_packet();// function to be implemented later
-                        SM[i].swnd.timeout[j]=time(NULL)+T;//
-                    }
-                }
-            }
-            pthread_mutex_unlock(&mutex_socket[i]); 
-        }
-
-    }
 }
-
-
 
 
 int main(){
