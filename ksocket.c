@@ -16,60 +16,47 @@ window_t init_window(){
     return w;
 }
 
-k_sockfd_t k_socket(int __domain,int __type,int protocol){
-    assert(__type==SOCK_KTP && __domain==AF_INET && "Incorrect Sock type for KTP");
+k_sockfd_t k_socket(int __domain, int __type, int protocol)
+{
+    assert(__type == SOCK_KTP && __domain == AF_INET && "Incorrect Sock type for KTP");
 
-    int sockfd;
-    int k_sockfd;
-    
-    ktp_socket_t* SM=k_shmat();
+    ktp_socket_t *SM = k_shmat();
 
-    if(SM==NULL) return -1;
-    
-    for(int i=0;i<NUM_SOCKETS;++i)
+    if (SM == (void*)-1)
+        return -1;
+
+    for (int i = 0; i < NUM_SOCKETS; ++i)
     {
         pthread_mutex_lock(&mutex_socket[i]);
-        if(SM[i].is_free)
+        if (SM[i].is_free)
         {
-            sockfd=socket(__domain,SOCK_DGRAM,protocol);
-            if(sockfd<0)
+            SM[i].is_free = false;
+            SM[i].is_closed = false;
+            SM[i].is_bound = false;
+            SM[i].no_space = false;
+            SM[i].pid = getpid();
+            memset(&SM[i].src_addr, 0, sizeof(SM[i].src_addr));
+            memset(&SM[i].dest_addr, 0, sizeof(SM[i].dest_addr));
+            for (int j = 0; j < BUFFSIZE; j++)
             {
-                k_sockfd=-1;
+                SM[i].send_buffer_empty[j] = true;
             }
-            else{
-                k_sockfd = i;
-                SM[i].sockfd = sockfd;
-                SM[i].is_free = false;
-                SM[i].is_closed=false;
-                SM[i].is_bound=false;
-                SM[i].no_space=false;
-                SM[i].pid = getpid();
-                memset(&SM[i].src_addr, 0, sizeof(SM[i].src_addr));
-                memset(&SM[i].dest_addr, 0, sizeof(SM[i].dest_addr));
-                for (int j = 0; j < BUFFSIZE; j++)
-                {
-                    SM[i].send_buffer_empty[j] = true;
-                }
-                SM[i].swnd = init_window();
-                SM[i].rwnd = init_window();
-            }
+            SM[i].swnd = init_window();
+            SM[i].rwnd = init_window();
             pthread_mutex_unlock(&mutex_socket[i]);
-            k_shmdt((void*)SM);
-            return k_sockfd;
+            k_shmdt((void *)SM);
+            return i;
         }
 
         pthread_mutex_unlock(&mutex_socket[i]);
     }
-    g_error=ENOSPACE;
-    sockfd=-1;
+    g_error = ENOSPACE;
+    k_shmdt((void *)SM);
 
-    k_shmdt((void*)SM);
-    return sockfd;
+    return -1;
 }
 
-
-
-int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port){
+int k_bind(k_sockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_port){
     ktp_socket_t* SM=k_shmat();
     pthread_mutex_lock(&mutex_socket[__fd]);
     SM[__fd].src_addr.sin_family=AF_INET;
@@ -81,10 +68,11 @@ int k_bind(int __fd,char* __src_ip, int __src_port, char* __dest_ip, int __dest_
     SM[__fd].dest_addr.sin_addr.s_addr=inet_addr(__dest_ip);
 
     pthread_mutex_unlock(&mutex_socket[__fd]);
-    int bind_result=bind(__fd,(struct sockaddr*)&SM[__fd].src_addr, sizeof(SM[__fd].src_addr));
     k_shmdt((void*)SM);
 
-    return bind_result;
+    printf("Socket bound with ksockfd: %d src_port: %d dest_port: %d\n", __fd, __src_port,__dest_port);
+
+    return 0;
 }
 
 
@@ -160,21 +148,15 @@ int k_close(k_sockfd_t __fd)
     ktp_socket_t *SM=k_shmat();
     if(SM==(void*)-1) return -1;
 
-    int ret_val = -1;
     pthread_mutex_lock(&mutex_socket[__fd]);
-    
-    
     if(!SM[__fd].is_free)
     {
-        SM[__fd].is_free=true;
         SM[__fd].is_closed=true;
-        ret_val=close(SM[__fd].sockfd);
     }
-
     pthread_mutex_unlock(&mutex_socket[__fd]);
     k_shmdt((void*)SM);
 
-    return ret_val;
+    return 0;
 }
 
 
