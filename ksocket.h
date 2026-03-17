@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 
 #include <arpa/inet.h>
@@ -53,7 +54,8 @@ typedef enum packet_type{
     FIN_ACK // string as FACK
 }packet_type_t;
 
-error_t g_error=NOERROR;
+extern error_t g_error;
+extern pthread_mutex_t mutex_socket[NUM_SOCKETS];
 
 /*Here is the definition of the structure for sliding window implementation*/
 typedef struct{
@@ -84,10 +86,6 @@ typedef struct {
     time_t fin_timeout;
 }ktp_socket_t;
 
-/* Initialising sockets at compile time */
-pthread_mutex_t mutex_socket[NUM_SOCKETS] = {
-    [0 ... NUM_SOCKETS-1] = PTHREAD_MUTEX_INITIALIZER
-};
 
 k_sockfd_t k_socket(int __domain,int __type,int protocol);
 
@@ -100,8 +98,8 @@ here __restrict is like unique pointer of cpp that solely that
 pointer can access the memory and 
 thus the compiler can optimise things aggressively, very nice
 */
-ssize_t k_sendto(k_sockfd_t __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len);
-ssize_t k_recvfrom(k_sockfd_t __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
+ssize_t k_sendto(k_sockfd_t __fd,const void *__buf,size_t __n,const struct sockaddr *_dest_addr,socklen_t __addr_len);
+ssize_t k_recvfrom(k_sockfd_t __fd,void *__restrict__ __buf,size_t __n,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len);
 
 /* get the shared memory id */
 int k_shmget();

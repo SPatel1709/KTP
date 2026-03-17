@@ -1,5 +1,6 @@
 #include "ksocket.h"
-
+error_t g_error;
+pthread_mutex_t mutex_socket[NUM_SOCKETS];
 
 window_t init_window(){
     window_t w;
@@ -76,7 +77,7 @@ int k_bind(k_sockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int 
 }
 
 
-ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct sockaddr *_dest_addr,socklen_t __addr_len){
+ssize_t k_sendto(int __fd,const void *__buf,size_t __n,const struct sockaddr *_dest_addr,socklen_t __addr_len){
     ktp_socket_t* SM=k_shmat();
     pthread_mutex_lock(&mutex_socket[__fd]);
     struct sockaddr_in temp = *((struct sockaddr_in*)_dest_addr);
@@ -105,12 +106,13 @@ ssize_t k_sendto(int __fd,const void *__buf,size_t __n,int __flags,const struct 
     }
     g_error=ENOSPACE;
     pthread_mutex_unlock(&mutex_socket[__fd]);
+    
     return (ssize_t)-1;
 }
 
 
 /*Different from above as if it was not obvious ;)*/
-ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,int __flags,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
+ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
 {
 
     ktp_socket_t* SM=k_shmat();
@@ -163,7 +165,7 @@ int k_close(k_sockfd_t __fd)
 
 int k_shmget(){
     key_t token=ftok(FTOK_FILE,'M');
-    return shmget(token,0,0);
+    return shmget(token,0,0666);
 }
 
 ktp_socket_t* k_shmat(){
@@ -191,3 +193,11 @@ bool drop_message(double P)
     double r=(float)rand()/(float)RAND_MAX;
     return r<P;
 }
+
+
+// int main(){
+
+//     printf("Here\n");
+
+//     return 0;
+// }

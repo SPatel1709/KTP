@@ -1,4 +1,3 @@
-
 #include "ksocket.h"
 
 fd_set master;
@@ -10,78 +9,93 @@ void log_error(char* msg)
     exit(EXIT_FAILURE);
 }
 
-
 /* Memory Managers here*/
-void init_SM(int num_sockets)
+void init_Memory(int num_sockets)
 {
     if (num_sockets <= 0)    log_error("Socket number invalid");
     key_t token = ftok(FTOK_FILE, 'M');
 
 
-    int shmid = shmget(token, num_sockets * sizeof(ktp_socket_t), IPC_EXCL);
+    for(int i=0;i<num_sockets;++i)
+    {
+        if(pthread_mutex_init(&mutex_socket[i],NULL)!=0){
+            log_error("init_memory: Failed mutex_init");
+        }
+    }
+    
+    
+    int shmid = shmget(token, num_sockets * sizeof(ktp_socket_t), IPC_CREAT|0666);
     if (shmid < 0)          log_error("initksocket: Failed shmget");
-
-
+    
+    
     ktp_socket_t *SM = (ktp_socket_t *)shmat(shmid, NULL, 0);
     if (SM == (void *)-1)   log_error("initksocket: Failed shmat");
-
-
+    
+    
     for (int i = 0; i < num_sockets; ++i)
     {
         SM[i].is_free = true;
     }
-
+    
     printf("%d Sockets initialised\n", num_sockets);
     shmdt((void *)SM);
 }
 
 void cleanup(int signo){
     int shmid = k_shmget();
-
+    
     if (shmid != -1){
         shmctl(shmid, IPC_RMID, 0);
         printf("SHM %d removed\n", shmid);
     }
 
+    for(int i=0;i<NUM_SOCKETS;++i)
+    {
+        if(pthread_mutex_destroy(&mutex_socket[i])!=0)
+        {
+            fprintf(stderr,"Failed to destroy mutex\n");
+        }
+    }
+
     if (signo == SIGSEGV){
         log_error("Segmentation fault");
     }
+
     exit(EXIT_SUCCESS);
 }
 
+void close_socket(k_sockfd_t sockfd,ktp_socket_t* slot){
+    
+    slot->is_free=true;
+    FD_CLR(slot->sockfd,&master);
+    close(slot->sockfd);
+    printf("Closed KTP socket %d\n",sockfd);
+}
 
-/* Data manipulations*/
-
-void get_message(char buf[], char *type, uint16_t *seq, uint8_t *rwnd, char *msg)
+/* timeout checker*/
+bool check_timeout(ktp_socket_t* slot)
 {
-    memcpy(type, buf, MSG_TYPE);
-
-    uint16_t temp;
-    memcpy(&temp, buf + MSG_TYPE, sizeof(uint16_t));
-    *seq = ntohs(temp);
-
-    //rwnd is just one byte as window is just of 10 size
-    *rwnd = buf[MSG_TYPE + sizeof(uint16_t)];
-    memcpy(msg,buf+HEADER_SIZE,MSG_SIZE);
+    return (slot->swnd.timeout[slot->swnd.base] > 0 && (time(NULL) - slot->swnd.timeout[slot->swnd.base]) >= T);
 }
 
 
+/* send msg utils*/
 char* get_msg_type(packet_type_t msg_type)
 {
     if(msg_type==DATA)
-    return "DATA\0";
+    return "DATA";
 
     else if(msg_type==SYN)
-    return "SYN\0";
+    return "SYN";
 
     else if(msg_type==ACK)
-    return "ACK\0";
+    return "ACK";
 
     else if(msg_type==FIN)
-    return "FIN\0";
+    return "FIN";
 
     else if(msg_type==FIN_ACK)
-    return "FACK\0";
+    return "FACK";
 
     else
      return NULL;
@@ -90,70 +104,34 @@ char* get_msg_type(packet_type_t msg_type)
 
 ssize_t send_pkt(int sockfd,struct sockaddr_in* dest_addr,packet_type_t msg_type,uint16_t seq,uint8_t rwnd,char* msg){
     char buffer[PKT_SIZE];
-    char type[MSG_TYPE]=get_msg_type(msg_type);
+    // char type[MSG_TYPE]=get_msg_type(msg_type);
 
-    uint8_t k_rwnd=htons(rwnd);
-    uint16_t k_seq=htons(seq);
+    uint8_t k_rwnd=rwnd;
+    uint16_t k_seq=seq;
 
-    memcpy(buffer,type,MSG_TYPE);
+    memcpy(buffer,get_msg_type(msg_type),MSG_TYPE);
     memcpy(buffer+MSG_TYPE,&k_seq,sizeof(uint16_t));
     memcpy(buffer+MSG_TYPE+sizeof(uint16_t),&k_rwnd,sizeof(uint8_t));
     memcpy(buffer+MSG_TYPE+sizeof(uint16_t)+sizeof(uint8_t),msg,MSG_SIZE);
 
-    return sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)&dest_addr,sizeof(dest_addr));
-}
-
-/* Thread logic here */
-
-void* thread_Garbage(){
-    ktp_socket_t *SM = k_shmat();
-
-    while (1){
-        sleep(T);
-        for (int i = 0; i < NUM_SOCKETS; i++){
-            pthread_mutex_lock(&mutex_socket[i]);
-            if (!SM[i].is_free && !SM[i].is_closed){
-                if (kill(SM[i].pid, 0) == -1){
-                    printf("[THREAD G]: Process %d terminated\n", SM[i].pid);
-                    SM[i].is_closed = true;
-                }
-            }
-            pthread_mutex_unlock(&mutex_socket[i]);
-        }
-    }
+    return sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)dest_addr,sizeof(dest_addr));
 }
 
 
-/*
-    socket and bind
-*/
-int socket_bind(ktp_socket_t* slot,fd_set *master,int *maxfd)
+
+/* Receive msg utils*/
+
+void get_message(char buf[], char *type, uint16_t *seq, uint8_t *rwnd, char *msg)
 {
-    int k_sockfd=socket(AF_INET,SOCK_DGRAM,0);
-
-    if(k_sockfd<0)
-    {
-        fprintf(stderr,"(ERROR) [socket_bind]: Socket\n");
-        return -1;
-    }
-
-    if(bind(k_sockfd,(struct sockaddr *)&slot->src_addr,sizeof(slot->src_addr))<0)
-    {
-        fprintf(stderr,"(ERROR) [socket_bind]: bind\n");
-        close(k_sockfd);
-        return -1;
-    }
-
-    slot->sockfd=k_sockfd;
-    FD_SET(slot->sockfd,master);
-    if(slot->sockfd > *maxfd)
-    {
-        *maxfd=slot->sockfd;
-    }
-
-    slot->is_bound=true;
-
-    return 0;
+    memcpy(type, buf, MSG_TYPE);
+    
+    uint16_t temp;
+    memcpy(&temp, buf + MSG_TYPE, sizeof(uint16_t));
+    *seq = ntohs(temp);
+    
+    //rwnd is just one byte as window is just of 10 size
+    *rwnd = buf[MSG_TYPE + sizeof(uint16_t)];
+    memcpy(msg,buf+HEADER_SIZE,MSG_SIZE);
 }
 
 void handle_ack(ktp_socket_t *slot, uint16_t seq, uint16_t rwnd)
@@ -239,13 +217,6 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
     }
 }
 
-void close_socket(k_sockfd_t sockfd,ktp_socket_t* slot){
-    
-    slot->is_free=true;
-    FD_CLR(slot->sockfd,&master);
-    close(slot->sockfd);
-    printf("Closed KTP socket %d\n",sockfd);
-}
 
 void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,char buffer[],struct sockaddr_in send_addr){
     if(recv_bytes<0)
@@ -308,9 +279,39 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
 }
 
 
+/* socket and bind */
+int socket_bind(ktp_socket_t* slot,fd_set *master,int *maxfd)
+{
+    int k_sockfd=socket(AF_INET,SOCK_DGRAM,0);
+
+    if(k_sockfd<0)
+    {
+        fprintf(stderr,"(ERROR) [socket_bind]: Socket\n");
+        return -1;
+    }
+
+    if(bind(k_sockfd,(struct sockaddr *)&slot->src_addr,sizeof(slot->src_addr))<0)
+    {
+        fprintf(stderr,"(ERROR) [socket_bind]: bind\n");
+        close(k_sockfd);
+        return -1;
+    }
+
+    slot->sockfd=k_sockfd;
+    FD_SET(slot->sockfd,master);
+    if(slot->sockfd > *maxfd)
+    {
+        *maxfd=slot->sockfd;
+    }
+
+    slot->is_bound=true;
+
+    return 0;
+}
 
 
-void* thread_R(){
+
+void* thread_R(void* args){
 
      int max_fd=0;
      fd_set read_set;
@@ -374,7 +375,7 @@ void* thread_R(){
 
                     else if(SM[i].no_space && SM[i].rwnd.size>0)
                     {
-                        int ack_bytes=send_ack();
+                        int ack_bytes=send_pkt(SM[i].sockfd,&SM[i].dest_addr,ACK,SM[i].rwnd.last_ack,SM[i].rwnd.size,NULL);
 
                         if(ack_bytes<0)
                         {
@@ -388,7 +389,7 @@ void* thread_R(){
      }
 }
 
-void* thread_S(){
+void* thread_S(void* args){
     ktp_socket_t* SM=k_shmat();
     while(1){
         sleep(T/2);
@@ -403,7 +404,7 @@ void* thread_S(){
                         if(SM[i].swnd.timeout[j]!=-1){
                             printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
                             int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
-                            SM[i].swnd.msg_seq_num[j],SM[i].rwnd.size, SM[i].send_buffer[j]);//implemented now
+                            SM[i].swnd.msg_seq_num[j],0/*not sending rwnd in data msg*/, SM[i].send_buffer[j]);//implemented now
                         }
                         SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
                     }
@@ -448,7 +449,7 @@ void* thread_S(){
                         // if the message has not been sent before, send it and set the timeout
                         printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
                         int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
-                            SM[i].swnd.msg_seq_num[j],SM[i].rwnd.size, SM[i].send_buffer[j]);// fuction implemented now
+                            SM[i].swnd.msg_seq_num[j],0/* not sending rwnd in data*/, SM[i].send_buffer[j]);
                         SM[i].swnd.timeout[j]=time(NULL)+T;//
                     }
                 }
@@ -460,14 +461,37 @@ void* thread_S(){
 }
 
 
+/* Thread logic here */
+
+void* thread_Garbage(void* args){
+    ktp_socket_t *SM = k_shmat();
+
+    while (1){
+        sleep(T);
+        for (int i = 0; i < NUM_SOCKETS; i++){
+            pthread_mutex_lock(&mutex_socket[i]);
+            if (!SM[i].is_free && !SM[i].is_closed){
+                if (kill(SM[i].pid, 0) == -1){
+                    printf("[THREAD G]: Process %d terminated\n", SM[i].pid);
+                    SM[i].is_closed = true;
+                }
+            }
+            pthread_mutex_unlock(&mutex_socket[i]);
+        }
+    }
+    k_shmdt(SM);
+    return NULL;
+}
+
+
 
 int main(){
 
     srand(time(NULL));
 
-    
+    g_error=NOERROR;
     //initialising shared memory
-    init_SM(NUM_SOCKETS);
+    init_Memory(NUM_SOCKETS);
     
     signal(SIGINT,cleanup);
     signal(SIGSEGV,cleanup);
@@ -479,6 +503,8 @@ int main(){
     pthread_create(&Garb,NULL,&thread_Garbage,NULL);
 
 
-    pthread_exit(NULL);    
+    pthread_join(R, NULL);
+    pthread_join(S, NULL);
+    pthread_join(Garb, NULL);
     return 0;
 }
