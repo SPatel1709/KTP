@@ -402,7 +402,8 @@ void* thread_S(){
                         //send all the messages, no need to check for ack
                         if(SM[i].swnd.timeout[j]!=-1){
                             printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                            int send_bytes=send_pkt();// function to be implemented later
+                            int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
+                            SM[i].swnd.msg_seq_num[j],SM[i].rwnd.size, SM[i].send_buffer[j]);//implemented now
                         }
                         SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
                     }
@@ -414,7 +415,9 @@ void* thread_S(){
                 if(SM[i].fin_timeout==-1){
                     // first fin send
                     printf("[THREAD S]: Sending FIN for Ksocket %d\n",i);
-                    int send_bytes=send_pkt();// function to be implemented later
+                    int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN, 
+                            SM[i].swnd.last_ack,SM[i].rwnd.size, NULL);//implemented now, null as no message
+
                     SM[i].fin_timeout=time(NULL); //this is not actually the timeout, variable name peace
                 }
                 else{
@@ -422,7 +425,8 @@ void* thread_S(){
                     if(curr-SM[i].fin_timeout>=T){
                         // resend fin
                         printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n",i);
-                        int send_bytes=send_pkt();// function to be implemented later
+                        int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN, 
+                            SM[i].swnd.last_ack,SM[i].rwnd.size, NULL); //function implemented done
                         SM[i].fin_timeout=curr;
                     }
                 }
@@ -443,7 +447,8 @@ void* thread_S(){
                     {
                         // if the message has not been sent before, send it and set the timeout
                         printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                        int send_bytes=send_pkt();// function to be implemented later
+                        int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
+                            SM[i].swnd.msg_seq_num[j],SM[i].rwnd.size, SM[i].send_buffer[j]);// fuction implemented now
                         SM[i].swnd.timeout[j]=time(NULL)+T;//
                     }
                 }
