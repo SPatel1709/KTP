@@ -4,8 +4,10 @@ pthread_mutex_t mutex_socket[NUM_SOCKETS];
 
 window_t init_window(){
     window_t w;
-    w.base=1;
+    w.base=0;
     w.last_ack=0;
+    w.size=WINDOW_SIZE;
+    w.used=0;
     w.nxt_seq_num=1;
 
     for(int wnd=0;wnd<WINDOW_SIZE;++wnd)
@@ -23,7 +25,7 @@ k_sockfd_t k_socket(int __domain, int __type, int protocol)
 
     ktp_socket_t *SM = k_shmat();
 
-    if (SM == (void*)-1)
+    if (SM == NULL)
         return -1;
 
     for (int i = 0; i < NUM_SOCKETS; ++i)
@@ -36,8 +38,10 @@ k_sockfd_t k_socket(int __domain, int __type, int protocol)
             SM[i].is_bound = false;
             SM[i].no_space = false;
             SM[i].pid = getpid();
+            SM[i].sockfd = -1;
             memset(&SM[i].src_addr, 0, sizeof(SM[i].src_addr));
             memset(&SM[i].dest_addr, 0, sizeof(SM[i].dest_addr));
+            SM[i].fin_timeout=-1;
             for (int j = 0; j < BUFFSIZE; j++)
             {
                 SM[i].send_buffer_empty[j] = true;
@@ -79,67 +83,92 @@ int k_bind(k_sockfd_t __fd,char* __src_ip, int __src_port, char* __dest_ip, int 
 
 ssize_t k_sendto(int __fd,const void *__buf,size_t __n,const struct sockaddr *_dest_addr,socklen_t __addr_len){
     ktp_socket_t* SM=k_shmat();
+
+    if(SM==NULL) return -1;
     pthread_mutex_lock(&mutex_socket[__fd]);
     struct sockaddr_in temp = *((struct sockaddr_in*)_dest_addr);
     
     if(temp.sin_addr.s_addr!=SM[__fd].dest_addr.sin_addr.s_addr || temp.sin_port!=SM[__fd].dest_addr.sin_port){
         g_error=ENOTBOUND;
         pthread_mutex_unlock(&mutex_socket[__fd]);
+        k_shmdt((void*)SM);
         return (ssize_t)-1;
+    }
+
+    if (SM[__fd].swnd.used == BUFFSIZE)
+    {
+        g_error = ENOSPACE;
+        pthread_mutex_unlock(&mutex_socket[__fd]);
+        k_shmdt((void*)SM);
+        return -1;
     }
 
     /*now here check if there is any space left in the send buffer*/
     for (int j = SM[__fd].swnd.base, ctr = 0; ctr < BUFFSIZE; j = (j + 1) % BUFFSIZE, ctr++){
-        if (SM[__fd].send_buffer_empty[j]){
-            int cpy;
-            if(__n<PKT_SIZE) cpy=__n;
-            else cpy=PKT_SIZE;
+        if (SM[__fd].send_buffer_empty[j])
+        {
+            int cpy = (__n < MSG_SIZE) ? __n : MSG_SIZE;
+            memset(SM[__fd].send_buffer[j], 0, MSG_SIZE);
             memcpy(SM[__fd].send_buffer[j], __buf, cpy);
-            for (int i = cpy; i < PKT_SIZE; i++){
-                SM[__fd].send_buffer[j][i] = '\0';
-            }
+
             SM[__fd].send_buffer_empty[j] = false;
-            SM[__fd].swnd.timeout[j] = -1;
+            SM[__fd].swnd.timeout[j] = -1;   // pending, not sent yet
+            SM[__fd].swnd.used++;
+
             pthread_mutex_unlock(&mutex_socket[__fd]);
+            k_shmdt((void*)SM);
             return cpy;
         }
     }
     g_error=ENOSPACE;
     pthread_mutex_unlock(&mutex_socket[__fd]);
-    
+    k_shmdt((void*)SM);
     return (ssize_t)-1;
 }
 
 
 /*Different from above as if it was not obvious ;)*/
-ssize_t k_recvfrom(int __fd,void *__restrict__ __buf,size_t __n,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
+ssize_t k_recvfrom(int __fd, void *__restrict__ __buf, size_t __n,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
 {
+    ktp_socket_t* SM = k_shmat();
+    if (SM == NULL) return -1;
 
-    ktp_socket_t* SM=k_shmat();
     pthread_mutex_lock(&mutex_socket[__fd]);
-    int rt_bytes;
-    int slot = (SM[__fd].rwnd.base + SM[__fd].rwnd.size) % WINDOW_SIZE;
 
-    if(SM[__fd].rwnd.recv_ack[slot]){
-        int cpy;
-        if(__n<PKT_SIZE) cpy=__n;
-        else cpy=PKT_SIZE;
-        memcpy(__buf, SM[__fd].recv_buffer[slot], cpy);
-        rt_bytes = strlen((char *)__buf);
-        SM[__fd].rwnd.recv_ack[slot] = false;
-        SM[__fd].rwnd.size = (SM[__fd].rwnd.size + 1) % WINDOW_SIZE;
-        if(__addr != NULL && __addr_len != NULL){
-            memcpy(__addr, &SM[__fd].dest_addr, sizeof(struct sockaddr_in));
-            *__addr_len = sizeof(struct sockaddr_in);
-        }
-    }
-    else{
-        rt_bytes = -1;
+    int slot = SM[__fd].rwnd.base;
+
+    if(!SM[__fd].rwnd.recv_ack[slot])
+    {
         g_error = ENOMESSAGE;
+        pthread_mutex_unlock(&mutex_socket[__fd]);
+        k_shmdt((void*)SM);
+        return -1;
     }
-    
+
+    int cpy = (__n < MSG_SIZE) ? __n : MSG_SIZE;
+    memcpy(__buf, SM[__fd].recv_buffer[slot], cpy);
+
+    SM[__fd].rwnd.recv_ack[slot] = false;
+    memset(SM[__fd].recv_buffer[slot], 0, MSG_SIZE);
+
+    int old_base = SM[__fd].rwnd.base;
+    int last_slot = (old_base + WINDOW_SIZE - 1) % WINDOW_SIZE;
+
+    SM[__fd].rwnd.msg_seq_num[old_base] =
+        SM[__fd].rwnd.msg_seq_num[last_slot] % MAX_SEQ + 1;
+
+    SM[__fd].rwnd.base = (old_base + 1) % WINDOW_SIZE;
+    SM[__fd].rwnd.size++;   // one more free slot
+
+    if(__addr != NULL && __addr_len != NULL)
+    {
+        memcpy(__addr, &SM[__fd].dest_addr, sizeof(struct sockaddr_in));
+        *__addr_len = sizeof(struct sockaddr_in);
+    }
+
     pthread_mutex_unlock(&mutex_socket[__fd]);
-    return rt_bytes;
+    k_shmdt((void*)SM);
+    return cpy;
 }
 
 
@@ -148,7 +177,7 @@ int k_close(k_sockfd_t __fd)
     /*Clean the shared memory first*/
 
     ktp_socket_t *SM=k_shmat();
-    if(SM==(void*)-1) return -1;
+    if(SM==NULL) return -1;
 
     pthread_mutex_lock(&mutex_socket[__fd]);
     if(!SM[__fd].is_free)
@@ -178,7 +207,7 @@ ktp_socket_t* k_shmat(){
 
     ktp_socket_t *SM=(ktp_socket_t* )shmat(shmid,NULL,0);
 
-    if(SM==(void*)-1) return NULL;
+    if(SM==NULL) return NULL;
 
     return SM;
 }

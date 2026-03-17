@@ -61,6 +61,7 @@ extern pthread_mutex_t mutex_socket[NUM_SOCKETS];
 typedef struct{
     int base;
     u_int16_t size;
+    u_int16_t used;
     u_int16_t nxt_seq_num;
     u_int16_t last_ack;// this is useful for the receiver
     int msg_seq_num[WINDOW_SIZE]; // send but not acked
@@ -105,6 +106,8 @@ ssize_t k_recvfrom(k_sockfd_t __fd,void *__restrict__ __buf,size_t __n,struct so
 int k_shmget();
 ktp_socket_t* k_shmat();
 int k_shmdt(const void* __shmaddr);
+
+window_t init_window();
 
 bool drop_message(double P);
 #endif
