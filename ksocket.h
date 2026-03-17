@@ -45,6 +45,14 @@ typedef enum error_t{
     NOERROR
 } error_t;
 
+typedef enum packet_type{
+    DATA,
+    SYN,
+    ACK,
+    FIN,
+    FIN_ACK // string as FACK
+}packet_type_t;
+
 error_t g_error=NOERROR;
 
 /*Here is the definition of the structure for sliding window implementation*/

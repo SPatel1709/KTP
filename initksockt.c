@@ -65,9 +65,43 @@ void get_message(char buf[], char *type, uint16_t *seq, uint8_t *rwnd, char *msg
     memcpy(msg,buf+HEADER_SIZE,MSG_SIZE);
 }
 
-ssize_t send_pkt();
 
+char* get_msg_type(packet_type_t msg_type)
+{
+    if(msg_type==DATA)
+    return "DATA\0";
 
+    else if(msg_type==SYN)
+    return "SYN\0";
+
+    else if(msg_type==ACK)
+    return "ACK\0";
+
+    else if(msg_type==FIN)
+    return "FIN\0";
+
+    else if(msg_type==FIN_ACK)
+    return "FACK\0";
+
+    else
+     return NULL;
+    
+}
+
+ssize_t send_pkt(int sockfd,struct sockaddr_in* dest_addr,packet_type_t msg_type,uint16_t seq,uint8_t rwnd,char* msg){
+    char buffer[PKT_SIZE];
+    char type[MSG_TYPE]=get_msg_type(msg_type);
+
+    uint8_t k_rwnd=htons(rwnd);
+    uint16_t k_seq=htons(seq);
+
+    memcpy(buffer,type,MSG_TYPE);
+    memcpy(buffer+MSG_TYPE,&k_seq,sizeof(uint16_t));
+    memcpy(buffer+MSG_TYPE+sizeof(uint16_t),&k_rwnd,sizeof(uint8_t));
+    memcpy(buffer+MSG_TYPE+sizeof(uint16_t)+sizeof(uint8_t),msg,MSG_SIZE);
+
+    return sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)&dest_addr,sizeof(dest_addr));
+}
 
 /* Thread logic here */
 
@@ -189,7 +223,7 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
                     if(slot->rwnd.size == 0) slot->no_space = true;
 
                     printf("[THREAD R] (SENT): <ACK %d, RWND %d> ksocket %d\n", slot->rwnd.last_ack, slot->rwnd.size, slot_idx);
-                    if(send_pkt() < 0)
+                    if(send_pkt(slot->sockfd,&(slot->dest_addr),ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */) < 0)
                         fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
                 }
             }
@@ -200,7 +234,7 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
     if(is_duplicate)
     {
         printf("[THREAD R] (DUP MSG): SEQ %u (SENT): <ACK %d, RWND %d> ksocket %d\n", seq, slot->rwnd.last_ack, slot->rwnd.size, slot_idx);
-        if(send_pkt() < 0)
+        if(send_pkt(slot->sockfd,&(slot->dest_addr),ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */)<0)
             fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
     }
 }
@@ -246,7 +280,9 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
         else if (strcmp(type, "FIN") == 0)
         {
             printf("[THREAD R] (SENT FIN): ksocket %d\n", slot_idx);
-            if(send_pkt() < 0)
+
+            // need to send FIN_ACK for FIN not FIN puttar thoda dhyan rakha karo.
+            if(send_pkt(slot->sockfd,&(slot->dest_addr),FIN_ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */) < 0)
                 fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
             close_socket(slot_idx);
         }
@@ -357,7 +393,7 @@ void* thread_S(){
                         //send all the messages, no need to check for ack
                         if(SM[i].swnd.timeout[j]!=-1){
                             printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                            int send_bytes=send_packet();// function to be implemented later
+                            int send_bytes=send_pkt();// function to be implemented later
                         }
                         SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
                     }
@@ -369,7 +405,7 @@ void* thread_S(){
                 if(SM[i].fin_timeout==-1){
                     // first fin send
                     printf("[THREAD S]: Sending FIN for Ksocket %d\n",i);
-                    int send_bytes=send_packet();// function to be implemented later
+                    int send_bytes=send_pkt();// function to be implemented later
                     SM[i].fin_timeout=time(NULL); //this is not actually the timeout, variable name peace
                 }
                 else{
@@ -377,7 +413,7 @@ void* thread_S(){
                     if(curr-SM[i].fin_timeout>=T){
                         // resend fin
                         printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n",i);
-                        int send_bytes=send_packet();// function to be implemented later
+                        int send_bytes=send_pkt();// function to be implemented later
                         SM[i].fin_timeout=curr;
                     }
                 }
@@ -398,7 +434,7 @@ void* thread_S(){
                     {
                         // if the message has not been sent before, send it and set the timeout
                         printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-                        int send_bytes=send_packet();// function to be implemented later
+                        int send_bytes=send_pkt();// function to be implemented later
                         SM[i].swnd.timeout[j]=time(NULL)+T;//
                     }
                 }
@@ -421,8 +457,6 @@ int main(){
     
     signal(SIGINT,cleanup);
     signal(SIGSEGV,cleanup);
-
-
     
     //initialising threads
     pthread_t R,S,Garb;
