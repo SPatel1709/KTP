@@ -230,15 +230,22 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
             break;
         }
     }
-
+    
     if(is_duplicate)
     {
         printf("[THREAD R] (DUP MSG): SEQ %u (SENT): <ACK %d, RWND %d> ksocket %d\n", seq, slot->rwnd.last_ack, slot->rwnd.size, slot_idx);
         if(send_pkt(slot->sockfd,&(slot->dest_addr),ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */)<0)
-            fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
+        fprintf(stderr, "(ERROR) [handle_data]: send_ack\n");
     }
 }
 
+void close_socket(k_sockfd_t sockfd,ktp_socket_t* slot){
+    
+    slot->is_free=true;
+    FD_CLR(slot->sockfd,&master);
+    close(slot->sockfd);
+    printf("Closed KTP socket %d\n",sockfd);
+}
 
 void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,char buffer[],struct sockaddr_in send_addr){
     if(recv_bytes<0)
@@ -284,13 +291,13 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
             // need to send FIN_ACK for FIN not FIN puttar thoda dhyan rakha karo.
             if(send_pkt(slot->sockfd,&(slot->dest_addr),FIN_ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */) < 0)
                 fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
-            close_socket(slot_idx);
+            close_socket(slot_idx,slot);
         }
 
         else if (strcmp(type, "FACK") == 0)
         {
             printf("[THREAD R] (FACK RECV): ksocket %d\n", slot_idx);
-            close_socket(slot_idx);
+            close_socket(slot_idx,slot);
         }
 
         else
@@ -299,6 +306,8 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
         }
     }
 }
+
+
 
 
 void* thread_R(){
