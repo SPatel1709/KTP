@@ -1,0 +1,20 @@
+CC = gcc
+CFLAGS = -Iinclude
+
+SRC = src/lib/ksocket.c
+OBJ = build/lib/ksocket.o
+LIB = lib/libksocket.a
+
+all: $(LIB)
+
+$(LIB): $(OBJ)
+	mkdir -p lib
+	ar rcs $(LIB) $(OBJ)
+
+$(OBJ): $(SRC)
+	mkdir -p build/lib
+	$(CC) $(CFLAGS) -c $(SRC) -o $(OBJ)
+
+clean:
+	rm -rf build/lib
+	rm -f $(LIB)

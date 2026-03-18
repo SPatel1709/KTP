@@ -26,15 +26,15 @@
 
 #define SOCK_KTP 9999
 #define T 5
-#define p 0.3
+#define p 0.45f
 #define MSG_SIZE 512
-#define MSG_TYPE 5
-#define HEADER_SIZE (sizeof(u_int16_t)+sizeof(u_int8_t)+MSG_TYPE)
+#define MSG_TYPE 6
+#define HEADER_SIZE (sizeof(u_int8_t)+sizeof(u_int8_t)+MSG_TYPE)
 #define PKT_SIZE (MSG_SIZE+HEADER_SIZE) // size of the message in bytes
 #define BUFFSIZE 10 // size of buffer in terms of number of messages
 #define WINDOW_SIZE 10 // same as the buffer size
 #define NUM_SOCKETS 10
-#define MAX_SEQ 65535
+#define MAX_SEQ 255
 #define FTOK_FILE "ksocket.c"
 
 typedef int k_sockfd_t;
@@ -61,10 +61,10 @@ extern pthread_mutex_t mutex_socket[NUM_SOCKETS];
 typedef struct{
     int base;
     u_int16_t size;
-    u_int16_t used;
-    u_int16_t nxt_seq_num;
-    u_int16_t last_ack;// this is useful for the receiver
-    int msg_seq_num[WINDOW_SIZE]; // send but not acked
+    u_int8_t used;
+    u_int8_t nxt_seq_num;
+    u_int8_t last_ack;// this is useful for the receiver
+    uint8_t msg_seq_num[WINDOW_SIZE]; // send but not acked
     bool recv_ack[WINDOW_SIZE]; // this is useful for the receiver
     time_t timeout[WINDOW_SIZE]; // this is useful for the sender
 }window_t;

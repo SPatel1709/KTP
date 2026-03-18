@@ -1,0 +1,22 @@
+CC = gcc
+CFLAGS = -Iinclude
+LDFLAGS = -Llib -lksocket -lpthread
+
+SRC1 = src/users/user1.c
+SRC2 = src/users/user2.c
+
+BIN1 = bin/user1
+BIN2 = bin/user2
+
+all: $(BIN1) $(BIN2)
+
+$(BIN1): $(SRC1)
+	mkdir -p bin
+	$(CC) $(CFLAGS) $(SRC1) -o $(BIN1) $(LDFLAGS)
+
+$(BIN2): $(SRC2)
+	mkdir -p bin
+	$(CC) $(CFLAGS) $(SRC2) -o $(BIN2) $(LDFLAGS)
+
+clean:
+	rm -f $(BIN1) $(BIN2)

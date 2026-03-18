@@ -64,15 +64,6 @@ void cleanup(int signo){
     exit(EXIT_SUCCESS);
 }
 
-// void close_socket(k_sockfd_t sockfd,ktp_socket_t* slot){
-    
-//     slot->is_free=true;
-//     FD_CLR(slot->sockfd,&master);
-//     close(slot->sockfd);
-//     printf("Closed KTP socket %d\n",sockfd);
-// }
-
-
 void close_socket(k_sockfd_t sockfd, ktp_socket_t* slot)
 {
     if (slot->is_bound && slot->sockfd >= 0) {
@@ -112,95 +103,77 @@ bool check_timeout(ktp_socket_t* slot)
 /* send msg utils*/
 char* get_msg_type(packet_type_t msg_type)
 {
-    if(msg_type==DATA)
-    return "DATA";
-
-    else if(msg_type==SYN)
-    return "SYN";
-
-    else if(msg_type==ACK)
-    return "ACK";
-
-    else if(msg_type==FIN)
-    return "FIN";
-
-    else if(msg_type==FIN_ACK)
-    return "FACK";
-
-    else
-     return NULL;
+    if(msg_type==DATA) return "DATA";
+    else if(msg_type==SYN) return "SYN";
+    else if(msg_type==ACK) return "ACK";
+    else if(msg_type==FIN) return "FIN";
+    else if(msg_type==FIN_ACK) return "F_ACK";
+    else return NULL;
     
 }
 
 ssize_t send_pkt(int sockfd,struct sockaddr_in* dest_addr,packet_type_t msg_type,uint16_t seq,uint8_t rwnd,char* msg){
     char buffer[PKT_SIZE];
-
     memset(buffer, 0, sizeof(buffer));
-    // char type[MSG_TYPE]=get_msg_type(msg_type);
 
     uint8_t k_rwnd=rwnd;
-    uint16_t k_seq=htons(seq);
+    uint8_t k_seq=(uint8_t)(seq);
 
     memcpy(buffer,get_msg_type(msg_type),MSG_TYPE);
-    memcpy(buffer+MSG_TYPE,&k_seq,sizeof(uint16_t));
-    memcpy(buffer+MSG_TYPE+sizeof(uint16_t),&k_rwnd,sizeof(uint8_t));
+    memcpy(buffer+MSG_TYPE,&k_seq,sizeof(uint8_t));
+    memcpy(buffer+MSG_TYPE+sizeof(uint8_t),&k_rwnd,sizeof(uint8_t));
     
     if(msg!=NULL) // we can memcpy from a null msg
-    memcpy(buffer+MSG_TYPE+sizeof(uint16_t)+sizeof(uint8_t),msg,MSG_SIZE);
+    memcpy(buffer+MSG_TYPE+sizeof(uint8_t)+sizeof(uint8_t),msg,MSG_SIZE);
 
     return sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)dest_addr,sizeof(struct sockaddr_in));
 }
 
-
-
 /* Receive msg utils*/
-
 void get_message(char buf[], char *type, uint16_t *seq, uint8_t *rwnd, char *msg)
 {
     memcpy(type, buf, MSG_TYPE);
     type[MSG_TYPE]='\0'; // Null-terminate the type string
     
-    uint16_t temp;
-    memcpy(&temp, buf + MSG_TYPE, sizeof(uint16_t));
-    *seq = ntohs(temp);
+    uint8_t temp;
+    memcpy(&temp, buf + MSG_TYPE, sizeof(uint8_t));
+    *seq = temp;
     
     //rwnd is just one byte as window is just of 10 size
-    *rwnd = buf[MSG_TYPE + sizeof(uint16_t)];
+    *rwnd = buf[MSG_TYPE + sizeof(uint8_t)];
     memcpy(msg,buf+HEADER_SIZE,MSG_SIZE);
 }
 
-void handle_ack(ktp_socket_t *slot, uint16_t seq, uint16_t rwnd)
+void handle_ack(ktp_socket_t *slot, uint8_t seq, uint8_t rwnd)
 {
     int acked = 0;
 
-    for (int counter = 0; counter < slot->swnd.used; ++counter) {
-        int i = (slot->swnd.base + counter) % WINDOW_SIZE;
-
-        if (slot->swnd.msg_seq_num[i] == seq) {
-            acked = (i - slot->swnd.base + WINDOW_SIZE) % WINDOW_SIZE + 1;
-            break;
+    for (int cnt = 0; cnt < slot->swnd.used; cnt++) {
+        int i = (slot->swnd.base + cnt) % WINDOW_SIZE;
+        acked = cnt + 1;
+        if (slot->swnd.msg_seq_num[i] == seq) break; // found the acked seq
+        if (cnt == slot->swnd.used - 1) { // seq not found in window -> duplicate ACK, just update size
+            acked = 0;
         }
     }
 
     if (acked > 0) {
-        for (int ct = 0, k = slot->swnd.base; ct < acked; ++ct, k = (k + 1) % WINDOW_SIZE) {
+        for (int ct = 0; ct < acked; ct++) {
+            int k = (slot->swnd.base + ct) % WINDOW_SIZE;
             slot->swnd.timeout[k] = -1;
             slot->send_buffer_empty[k] = true;
             memset(slot->send_buffer[k], 0, MSG_SIZE);
-
-            slot->swnd.msg_seq_num[k] = slot->swnd.nxt_seq_num % MAX_SEQ + 1;
-            slot->swnd.nxt_seq_num = slot->swnd.msg_seq_num[k];
         }
-
         slot->swnd.base = (slot->swnd.base + acked) % WINDOW_SIZE;
         slot->swnd.used -= acked;
     }
 
-    // duplicate ACK case: just update advertised remote rwnd
+    if(rwnd>0)
     slot->swnd.size = rwnd;
 }
 
-void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
+
+void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
 {
     int found_idx = -1;
     bool duplicate = false;
@@ -249,7 +222,7 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint16_t seq, char *msg)
         return;
     }
 
-    uint16_t new_last_ack = slot->rwnd.msg_seq_num[last_contig];
+    uint8_t new_last_ack = slot->rwnd.msg_seq_num[last_contig];
     if (new_last_ack != slot->rwnd.last_ack || duplicate) {
         slot->rwnd.last_ack = new_last_ack;
         printf("[THREAD R] (SENT): <ACK %d, RWND %d> ksocket %d\n",
@@ -268,18 +241,6 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
         fprintf(stderr,"(ERROR) [handle_buffer]: recv_bytes\n");
         return;
     }
-
-    /* If the connection gets closed */
-    // if(recv_bytes==0)
-    // {
-    //     if(!(slot->is_free) && slot->is_bound)
-    //     {
-    //         printf("[THREAD R]: Connection Closed by other end\n");
-    //         slot->is_closed=true;
-    //     }
-    //     return;
-    // }
-
     
     if(!slot->is_free && slot->is_bound)
     {
@@ -294,70 +255,32 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
         get_message(buffer,type,&seq,&rwnd,msg);
 
 
-        // if(drop_message(p))
-        // {
-        //     printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n", slot_idx, type, seq);
-        //     return;
-        // }
+        if(drop_message(p))
+        {
+            printf("[THREAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n", slot_idx, type, seq);
+            return;
+        }
 
-        // if(strcmp(type,"DATA")==0)      handle_data(slot, slot_idx, seq, msg);
+        if(strcmp(type,"DATA")==0)      handle_data(slot, slot_idx, seq, msg);
         
-        // else if(strcmp(type,"ACK")==0)  handle_ack(slot, seq, rwnd);
+        else if(strcmp(type,"ACK")==0)  handle_ack(slot, seq, rwnd);
 
-        // else if (strcmp(type, "FIN") == 0)
-        // {
-        //     printf("[THREAD R] (SENT FIN): ksocket %d\n", slot_idx);
-
-        //     // need to send FIN_ACK for FIN not FIN puttar thoda dhyan rakha karo.
-        //     if(send_pkt(slot->sockfd,&(slot->dest_addr),FIN_ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */) < 0)
-        //         fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
-        //     close_socket(slot_idx,slot);
-        // }
-
-        // else if (strcmp(type, "FACK") == 0)
-        // {
-        //     printf("[THREAD R] (FACK RECV): ksocket %d\n", slot_idx);
-        //     close_socket(slot_idx,slot);
-        // }
-
-        // else
-        // {
-        //     fprintf(stderr, "(ERROR) [handle_buffer] : INVALID MSG TYPE\n");
-        // }
-
-        if (strcmp(type, "DATA") == 0)
-        {
-            if (drop_message(p))
-            {
-                printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n", slot_idx, type, seq);
-                return;
-            }
-            handle_data(slot, slot_idx, seq, msg);
-        }
-        else if (strcmp(type, "ACK") == 0)
-        {
-            if (drop_message(p))
-            {
-                printf("[THEAD R] (DROPPED): ksocket %d, Type: %s, Seq: %d\n", slot_idx, type, seq);
-                return;
-            }
-            handle_ack(slot, seq, rwnd);
-        }
         else if (strcmp(type, "FIN") == 0)
         {
             printf("[THREAD R] (SENT FIN): ksocket %d\n", slot_idx);
 
-            if (send_pkt(slot->sockfd, &(slot->dest_addr), FIN_ACK,
-                         slot->rwnd.last_ack, slot->rwnd.size, NULL) < 0)
+            // need to send FIN_ACK for FIN not FIN puttar thoda dhyan rakha karo.
+            if(send_pkt(slot->sockfd,&(slot->dest_addr),FIN_ACK,slot->rwnd.last_ack,slot->rwnd.size,NULL/* No data needed */) < 0)
                 fprintf(stderr, "(ERROR) [handle_buffer]: send_fin_ack\n");
+            close_socket(slot_idx,slot);
+        }
 
-            close_socket(slot_idx, slot);
-        }
-        else if (strcmp(type, "FACK") == 0)
+        else if (strcmp(type, "F_ACK") == 0)
         {
-            printf("[THREAD R] (FACK RECV): ksocket %d\n", slot_idx);
-            close_socket(slot_idx, slot);
+            printf("[THREAD R] (F_ACK RECV): ksocket %d\n", slot_idx);
+            close_socket(slot_idx,slot);
         }
+
         else
         {
             fprintf(stderr, "(ERROR) [handle_buffer] : INVALID MSG TYPE\n");
@@ -398,7 +321,7 @@ int socket_bind(ktp_socket_t* slot,fd_set *master,int *maxfd)
 
 
 
-void* thread_R(void* args){
+void* thread_R(){
 
      int max_fd=0;
      fd_set read_set;
@@ -551,10 +474,6 @@ void* thread_R(void* args){
 //     }
 // }
 
-static int current_swnd_span(const ktp_socket_t *slot)
-{
-    return (slot->swnd.used < slot->swnd.size) ? slot->swnd.used : slot->swnd.size;
-}
 
 static int all_sent_and_acked(const ktp_socket_t *slot)
 {
@@ -564,8 +483,7 @@ static int all_sent_and_acked(const ktp_socket_t *slot)
     return 1;
 }
 
-
-void* thread_S(void* args)
+void* thread_S()
 {
     ktp_socket_t* SM = k_shmat();
     if (SM == NULL) return NULL;
@@ -577,12 +495,28 @@ void* thread_S(void* args)
             pthread_mutex_lock(&mutex_socket[i]);
 
             if (!SM[i].is_free && SM[i].is_bound) {
-                int span = current_swnd_span(&SM[i]);
                 time_t now = time(NULL);
+                int sent_span = SM[i].swnd.used;
+                int send_span = SM[i].swnd.size;
 
-                /* Step 1: retransmit timed-out sent packets in current swnd */
+                /* Step 0: probe if rwnd=0 but data is waiting */
+                if (send_span == 0 && sent_span > 0) {
+                    int j = SM[i].swnd.base;
+                    if (!SM[i].send_buffer_empty[j] &&
+                        SM[i].swnd.timeout[j] != -1 &&
+                        now >= SM[i].swnd.timeout[j]) {
+                        send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
+                                 SM[i].swnd.msg_seq_num[j], 0,
+                                 SM[i].send_buffer[j]);
+                        SM[i].swnd.timeout[j] = now + T;
+                    }
+                    pthread_mutex_unlock(&mutex_socket[i]);
+                    continue;
+                }
+
+                /* Step 1: retransmit timed-out sent packets */
                 int timed_out = 0;
-                for (int j = SM[i].swnd.base, cnt = 0; cnt < span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
+                for (int j = SM[i].swnd.base, cnt = 0; cnt < sent_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                     if (!SM[i].send_buffer_empty[j] &&
                         SM[i].swnd.timeout[j] != -1 &&
                         now >= SM[i].swnd.timeout[j]) {
@@ -592,11 +526,10 @@ void* thread_S(void* args)
                 }
 
                 if (timed_out) {
-                    for (int j = SM[i].swnd.base, cnt = 0; cnt < span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
+                    for (int j = SM[i].swnd.base, cnt = 0; cnt < sent_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                         if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] != -1) {
                             printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",
                                    i, SM[i].swnd.msg_seq_num[j]);
-
                             if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
                                          SM[i].swnd.msg_seq_num[j], 0,
                                          SM[i].send_buffer[j]) >= 0) {
@@ -606,9 +539,13 @@ void* thread_S(void* args)
                     }
                 }
 
-                /* Step 2: send pending unsent packets in current swnd */
-                for (int j = SM[i].swnd.base, cnt = 0; cnt < span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
+                /* Step 2: send new unsent packets */
+                for (int j = SM[i].swnd.base, cnt = 0; cnt < send_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                     if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] == -1) {
+
+                        SM[i].swnd.msg_seq_num[j] = SM[i].swnd.nxt_seq_num;
+                        SM[i].swnd.nxt_seq_num = SM[i].swnd.nxt_seq_num % MAX_SEQ + 1;
+
                         printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",
                                i, SM[i].swnd.msg_seq_num[j]);
 
@@ -616,27 +553,24 @@ void* thread_S(void* args)
                                      SM[i].swnd.msg_seq_num[j], 0,
                                      SM[i].send_buffer[j]) >= 0) {
                             SM[i].swnd.timeout[j] = now + T;
+                            SM[i].swnd.used++;
                         }
                     }
                 }
 
-                /* Step 3: only after all data is drained, start FIN handshake */
+                /* Step 3: FIN handshake after all data drained */
                 if (SM[i].is_closed && all_sent_and_acked(&SM[i])) {
                     if (SM[i].fin_timeout == -1) {
                         printf("[THREAD S]: Sending FIN for Ksocket %d\n", i);
-
                         if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN,
-                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL) >= 0) {
+                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL) >= 0)
                             SM[i].fin_timeout = now + T;
-                        }
                     }
                     else if (now >= SM[i].fin_timeout) {
                         printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n", i);
-
                         if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN,
-                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL) >= 0) {
+                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL) >= 0)
                             SM[i].fin_timeout = now + T;
-                        }
                     }
                 }
             }
@@ -649,10 +583,8 @@ void* thread_S(void* args)
     return NULL;
 }
 
-
 /* Thread logic here */
-
-void* thread_Garbage(void* args){
+void* thread_Garbage(){
     ktp_socket_t *SM = k_shmat();
 
     while (1){
@@ -671,8 +603,6 @@ void* thread_Garbage(void* args){
     k_shmdt(SM);
     return NULL;
 }
-
-
 
 int main(){
 

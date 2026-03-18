@@ -1,0 +1,15 @@
+CC = gcc
+CFLAGS = -Iinclude
+LDFLAGS = -Llib -lksocket -lpthread
+
+SRC = src/init/initksockt.c
+BIN = bin/initksocket
+
+all: $(BIN)
+
+$(BIN): $(SRC)
+	mkdir -p bin
+	$(CC) $(CFLAGS) $(SRC) -o $(BIN) $(LDFLAGS)
+
+clean:
+	rm -f $(BIN)

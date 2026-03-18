@@ -41,7 +41,7 @@ static void short_sleep(void)
 {
     struct timespec ts;
     ts.tv_sec = 0;
-    ts.tv_nsec = 20 * 1000 * 1000; // 20 ms
+    ts.tv_nsec = 20 * 1000 * 1000;
     nanosleep(&ts, NULL);
 }
 

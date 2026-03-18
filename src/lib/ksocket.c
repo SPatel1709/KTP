@@ -4,17 +4,17 @@ pthread_mutex_t mutex_socket[NUM_SOCKETS];
 
 window_t init_window(){
     window_t w;
-    w.base=0;
-    w.last_ack=0;
-    w.size=WINDOW_SIZE;
-    w.used=0;
-    w.nxt_seq_num=1;
+    w.base = 0;
+    w.last_ack = 0;
+    w.size = WINDOW_SIZE;
+    w.used = 0;
+    w.nxt_seq_num = WINDOW_SIZE + 1;  // ← next seq after initial 1..10
 
-    for(int wnd=0;wnd<WINDOW_SIZE;++wnd)
+    for(int wnd = 0; wnd < WINDOW_SIZE; ++wnd)
     {
-        w.recv_ack[wnd]=false;
-        w.timeout[wnd]=-1;
-        w.msg_seq_num[wnd]=wnd+1;
+        w.recv_ack[wnd] = false;
+        w.timeout[wnd] = -1;
+        w.msg_seq_num[wnd] = wnd + 1;  // 1..10
     }
     return w;
 }
@@ -48,6 +48,7 @@ k_sockfd_t k_socket(int __domain, int __type, int protocol)
             }
             SM[i].swnd = init_window();
             SM[i].rwnd = init_window();
+            SM[i].swnd.nxt_seq_num=1;
             pthread_mutex_unlock(&mutex_socket[i]);
             k_shmdt((void *)SM);
             return i;
@@ -113,7 +114,7 @@ ssize_t k_sendto(int __fd,const void *__buf,size_t __n,const struct sockaddr *_d
 
             SM[__fd].send_buffer_empty[j] = false;
             SM[__fd].swnd.timeout[j] = -1;   // pending, not sent yet
-            SM[__fd].swnd.used++;
+            // SM[__fd].swnd.used++;
 
             pthread_mutex_unlock(&mutex_socket[__fd]);
             k_shmdt((void*)SM);
@@ -152,10 +153,8 @@ ssize_t k_recvfrom(int __fd, void *__restrict__ __buf, size_t __n,struct sockadd
     memset(SM[__fd].recv_buffer[slot], 0, MSG_SIZE);
 
     int old_base = SM[__fd].rwnd.base;
-    int last_slot = (old_base + WINDOW_SIZE - 1) % WINDOW_SIZE;
-
-    SM[__fd].rwnd.msg_seq_num[old_base] =
-        SM[__fd].rwnd.msg_seq_num[last_slot] % MAX_SEQ + 1;
+    SM[__fd].rwnd.msg_seq_num[old_base] = SM[__fd].rwnd.nxt_seq_num;
+    SM[__fd].rwnd.nxt_seq_num = SM[__fd].rwnd.nxt_seq_num % MAX_SEQ + 1;
 
     SM[__fd].rwnd.base = (old_base + 1) % WINDOW_SIZE;
     SM[__fd].rwnd.size++;   // one more free slot
@@ -219,14 +218,7 @@ int k_shmdt(const void* SM)
 
 bool drop_message(double P)
 {
+    srand(time(NULL));
     double r=(float)rand()/(float)RAND_MAX;
     return r<P;
 }
-
-
-// int main(){
-
-//     printf("Here\n");
-
-//     return 0;
-// }
