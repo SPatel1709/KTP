@@ -218,7 +218,9 @@ int k_shmdt(const void* SM)
 
 bool drop_message(double P)
 {
-    srand(time(NULL));
+    // srand(time(NULL));
     double r=(float)rand()/(float)RAND_MAX;
+    // printf("Random number generated: %f\n", r);
+    // printf("%d\n",(int)(r<P));
     return r<P;
 }
