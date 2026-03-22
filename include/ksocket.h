@@ -1,3 +1,10 @@
+/*Mini Project 1 Submission
+Group Details:
+Member 1 Name: Shrey Patel
+Member 1 Roll number: 23CS10051
+Member 2 Name: Arham J Bhansali
+Member 2 Roll number: 23CS30007*/
+
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 

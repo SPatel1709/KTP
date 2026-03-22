@@ -1,3 +1,11 @@
+/*Mini Project 1 Submission
+Group Details:
+Member 1 Name: Shrey Patel
+Member 1 Roll number: 23CS10051
+Member 2 Name: Arham J Bhansali
+Member 2 Roll number: 23CS30007*/
+
+
 #include "ksocket.h"
 error_t g_error;
 pthread_mutex_t mutex_socket[NUM_SOCKETS];
