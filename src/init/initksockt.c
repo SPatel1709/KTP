@@ -2,7 +2,7 @@
 
 fd_set master;
 #define TIMEOUT 100000
-static unsigned long long g_data_tx_count = 0;
+static unsigned long long g_pkt_tx_count = 0;
 
 void log_error(char* msg)
 {
@@ -45,7 +45,7 @@ void init_Memory(int num_sockets)
 void cleanup(int signo){
     int shmid = k_shmget();
 
-    printf("Total DATA transmissions: %llu\n", g_data_tx_count);
+    printf("Total packet transmissions: %llu\n", g_pkt_tx_count);
     
     if (shmid != -1){
         shmctl(shmid, IPC_RMID, 0);
@@ -129,7 +129,11 @@ ssize_t send_pkt(int sockfd,struct sockaddr_in* dest_addr,packet_type_t msg_type
     if(msg!=NULL) // we can memcpy from a null msg
     memcpy(buffer+MSG_TYPE+sizeof(uint8_t)+sizeof(uint8_t),msg,MSG_SIZE);
 
-    return sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)dest_addr,sizeof(struct sockaddr_in));
+    ssize_t sent = sendto(sockfd,buffer,PKT_SIZE,0,(struct sockaddr*)dest_addr,sizeof(struct sockaddr_in));
+    if (sent >= 0) {
+        g_pkt_tx_count++;
+    }
+    return sent;
 }
 
 /* Receive msg utils*/
@@ -521,7 +525,6 @@ void* thread_S()
                         if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
                                      SM[i].swnd.msg_seq_num[j], 0,
                                      SM[i].send_buffer[j]) >= 0) {
-                            g_data_tx_count++;
                             SM[i].swnd.timeout[j] = now + T;
                         }
                     }
@@ -548,7 +551,6 @@ void* thread_S()
                             if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
                                          SM[i].swnd.msg_seq_num[j], 0,
                                          SM[i].send_buffer[j]) >= 0) {
-                                g_data_tx_count++;
                                 SM[i].swnd.timeout[j] = now + T;
                             }
                         }
@@ -568,7 +570,6 @@ void* thread_S()
                         if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
                                      SM[i].swnd.msg_seq_num[j], 0,
                                      SM[i].send_buffer[j]) >= 0) {
-                            g_data_tx_count++;
                             SM[i].swnd.timeout[j] = now + T;
                             SM[i].swnd.used++;
                         }
