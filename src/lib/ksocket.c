@@ -139,14 +139,14 @@ ssize_t k_sendto(int __fd,const void *__buf,size_t __n,const struct sockaddr *_d
 /*Different from above as if it was not obvious ;)*/
 ssize_t k_recvfrom(int __fd, void *__restrict__ __buf, size_t __n,struct sockaddr *__restrict__ __addr,socklen_t *__restrict__ __addr_len)
 {
-    ktp_socket_t* SM = k_shmat();
+    ktp_socket_t* SM = k_shmat(); // attaching the memory
     if (SM == NULL) return -1;
 
     pthread_mutex_lock(&mutex_socket[__fd]);
 
     int slot = SM[__fd].rwnd.base;
 
-    if(!SM[__fd].rwnd.recv_ack[slot])
+    if(!SM[__fd].rwnd.recv_ack[slot]) // if no message is available
     {
         g_error = ENOMESSAGE;
         pthread_mutex_unlock(&mutex_socket[__fd]);
@@ -154,17 +154,17 @@ ssize_t k_recvfrom(int __fd, void *__restrict__ __buf, size_t __n,struct sockadd
         return -1;
     }
 
-    int cpy = (__n < MSG_SIZE) ? __n : MSG_SIZE;
+    int cpy = (__n < MSG_SIZE) ? __n : MSG_SIZE; 
     memcpy(__buf, SM[__fd].recv_buffer[slot], cpy);
 
-    SM[__fd].rwnd.recv_ack[slot] = false;
+    SM[__fd].rwnd.recv_ack[slot] = false; // mark the slot as free
     memset(SM[__fd].recv_buffer[slot], 0, MSG_SIZE);
 
     int old_base = SM[__fd].rwnd.base;
-    SM[__fd].rwnd.msg_seq_num[old_base] = SM[__fd].rwnd.nxt_seq_num;
-    SM[__fd].rwnd.nxt_seq_num = SM[__fd].rwnd.nxt_seq_num % MAX_SEQ + 1;
+    SM[__fd].rwnd.msg_seq_num[old_base] = SM[__fd].rwnd.nxt_seq_num; // store the sequence number of the received message
+    SM[__fd].rwnd.nxt_seq_num = SM[__fd].rwnd.nxt_seq_num % MAX_SEQ + 1; // increment the next sequence number
 
-    SM[__fd].rwnd.base = (old_base + 1) % WINDOW_SIZE;
+    SM[__fd].rwnd.base = (old_base + 1) % WINDOW_SIZE; // slide the window
     SM[__fd].rwnd.size++;   // one more free slot
 
     if(__addr != NULL && __addr_len != NULL)
@@ -173,7 +173,7 @@ ssize_t k_recvfrom(int __fd, void *__restrict__ __buf, size_t __n,struct sockadd
         *__addr_len = sizeof(struct sockaddr_in);
     }
 
-    pthread_mutex_unlock(&mutex_socket[__fd]);
+    pthread_mutex_unlock(&mutex_socket[__fd]);//release mutx
     k_shmdt((void*)SM);
     return cpy;
 }
