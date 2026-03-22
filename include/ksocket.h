@@ -26,7 +26,7 @@
 
 #define SOCK_KTP 9999
 #define T 5
-#define p 0.5f
+#define p 0.05f
 #define MSG_SIZE 512
 #define MSG_TYPE 6
 #define HEADER_SIZE (sizeof(u_int8_t)+sizeof(u_int8_t)+MSG_TYPE)

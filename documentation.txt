@@ -352,3 +352,25 @@ owning process is still alive. If the process no longer exists (kill returns -1)
 sets is_closed=true, allowing Thread S to drain and free the slot. This prevents
 resource leaks when user processes terminate without calling k_close().
 
+================================================================================
+EXPERIMENTAL RESULTS: PACKET LOSS vs AVERAGE TRANSMISSIONS PER MESSAGE
+================================================================================
+  - File size: 105,347 bytes
+  - Message count: 207 (1 metadata + 206 data chunks of 512 bytes each)
+
+Measurement: Total transmitted packets (DATA + ACK) / number of messages
+
+┌────────────────────────────────────────
+│ Drop Prob (p) │ Total Tx │ Avg Tx/Msg │
+├────────────────────────────────────────
+│     0.05      │   467    │   2.254    │
+│     0.10      │   531    │   2.565    │
+│     0.15      │   553    │   2.671    │
+│     0.20      │   614    │   2.966    │
+│     0.25      │   672    │   3.246    │
+│     0.30      │   671    │   3.242    │
+│     0.35      │   710    │   3.430    │
+│     0.40      │   787    │   3.802    │
+│     0.45      │   946    │   4.565    │
+│     0.50      │  1080    │   5.217    │
+ ────────────────────────────────────────

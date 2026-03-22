@@ -2,7 +2,9 @@
 
 fd_set master;
 #define TIMEOUT 100000
+#define ZW_UPDATE_RETRY_SEC 1
 static unsigned long long g_pkt_tx_count = 0;
+static time_t g_wnd_update_next[NUM_SOCKETS] = {0};
 
 void log_error(char* msg)
 {
@@ -212,6 +214,7 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
     } else {
         slot->rwnd.recv_ack[found_idx] = true;
         memcpy(slot->recv_buffer[found_idx], msg, MSG_SIZE);
+        slot->no_space = false;
 
         if (slot->rwnd.size > 0)
             slot->rwnd.size--;
@@ -400,17 +403,16 @@ void* thread_R(){
 
                     else if(SM[i].no_space && SM[i].rwnd.size>0)
                     {
-                        int ack_bytes = (SM[i].rwnd.last_ack != 0)
-                            ? send_pkt(SM[i].sockfd, &SM[i].dest_addr, ACK,
-                                       SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL)
-                            : 0;
+                        time_t now = time(NULL);
+                        if (SM[i].rwnd.last_ack != 0 && now >= g_wnd_update_next[i]) {
+                            int ack_bytes = send_pkt(SM[i].sockfd, &SM[i].dest_addr, ACK,
+                                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL);
 
-                        if(ack_bytes<0)
-                        {
-                            fprintf(stderr,"(ERROR) [Thread R]: Send_ack\n");
-                        }
-                        else{
-                            SM[i].no_space=false;
+                            if(ack_bytes<0)
+                            {
+                                fprintf(stderr,"(ERROR) [Thread R]: Send_ack\n");
+                            }
+                            g_wnd_update_next[i] = now + ZW_UPDATE_RETRY_SEC;
                         }
                     }
                 }
@@ -525,7 +527,7 @@ void* thread_S()
                         if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
                                      SM[i].swnd.msg_seq_num[j], 0,
                                      SM[i].send_buffer[j]) >= 0) {
-                            SM[i].swnd.timeout[j] = now + T;
+                            SM[i].swnd.timeout[j] = now + ZW_UPDATE_RETRY_SEC;
                         }
                     }
                     pthread_mutex_unlock(&mutex_socket[i]);
