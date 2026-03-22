@@ -41,7 +41,7 @@ k_sockfd_t k_socket(int __domain, int __type, int protocol)
             SM[i].sockfd = -1;
             memset(&SM[i].src_addr, 0, sizeof(SM[i].src_addr));
             memset(&SM[i].dest_addr, 0, sizeof(SM[i].dest_addr));
-            SM[i].fin_timeout=-1;
+            // SM[i].fin_timeout=-1;
             for (int j = 0; j < BUFFSIZE; j++)
             {
                 SM[i].send_buffer_empty[j] = true;

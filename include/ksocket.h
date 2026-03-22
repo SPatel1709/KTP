@@ -48,10 +48,10 @@ typedef enum error_t{
 
 typedef enum packet_type{
     DATA,
-    SYN,
+    // SYN,
     ACK,
-    FIN,
-    FIN_ACK // string as FACK
+    // FIN,
+    // FIN_ACK // string as FACK
 }packet_type_t;
 
 extern error_t g_error;
@@ -84,7 +84,7 @@ typedef struct {
     window_t swnd; //sender window
     window_t rwnd; //receiver window
     //fin bullshit added later
-    time_t fin_timeout;
+    // time_t fin_timeout;
 }ktp_socket_t;
 
 

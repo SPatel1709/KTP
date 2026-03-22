@@ -92,7 +92,7 @@ void close_socket(k_sockfd_t sockfd, ktp_socket_t* slot)
 
     slot->swnd=init_window();
     slot->rwnd=init_window();
-    slot->fin_timeout = -1;
+    // slot->fin_timeout = -1;
 
     printf("Closed KTP socket %d\n", sockfd);
 }
@@ -107,10 +107,10 @@ bool check_timeout(ktp_socket_t* slot)
 char* get_msg_type(packet_type_t msg_type)
 {
     if(msg_type==DATA) return "DATA";
-    else if(msg_type==SYN) return "SYN";
+    // else if(msg_type==SYN) return "SYN";
     else if(msg_type==ACK) return "ACK";
-    else if(msg_type==FIN) return "FIN";
-    else if(msg_type==FIN_ACK) return "F_ACK";
+    // else if(msg_type==FIN) return "FIN";
+    // else if(msg_type==FIN_ACK) return "F_ACK";
     else return NULL;
     
 }
@@ -279,17 +279,17 @@ void handle_buffer(ktp_socket_t* slot,k_sockfd_t slot_idx,ssize_t recv_bytes,cha
         
         else if(strcmp(type,"ACK")==0)  handle_ack(slot, seq, rwnd);
 
-        else if (strcmp(type, "FIN") == 0)
-        {
-            printf("[THREAD R] (RECV FIN): ksocket %d\n", slot_idx);
-            close_socket(slot_idx,slot);
-        }
+        // else if (strcmp(type, "FIN") == 0)
+        // {
+        //     printf("[THREAD R] (RECV FIN): ksocket %d\n", slot_idx);
+        //     close_socket(slot_idx,slot);
+        // }
 
-        else if (strcmp(type, "F_ACK") == 0)
-        {
-            printf("[THREAD R] (F_ACK RECV): ksocket %d\n", slot_idx);
-            close_socket(slot_idx,slot);
-        }
+        // else if (strcmp(type, "F_ACK") == 0)
+        // {
+        //     printf("[THREAD R] (F_ACK RECV): ksocket %d\n", slot_idx);
+        //     close_socket(slot_idx,slot);
+        // }
 
         else
         {
@@ -512,7 +512,7 @@ void* thread_S()
                 int sent_span = SM[i].swnd.used;
                 int send_span = SM[i].swnd.size;
 
-                /* Step 0: probe if rwnd=0 but data is waiting */
+                /* probe if rwnd=0 but data is waiting */
                 if (send_span == 0 && sent_span > 0) {
                     int j = SM[i].swnd.base;
                     if (!SM[i].send_buffer_empty[j] &&
@@ -529,7 +529,7 @@ void* thread_S()
                     continue;
                 }
 
-                /* Step 1: retransmit timed-out sent packets */
+                /* retransmit timed-out sent packets */
                 int timed_out = 0;
                 for (int j = SM[i].swnd.base, cnt = 0; cnt < sent_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                     if (!SM[i].send_buffer_empty[j] &&
@@ -555,7 +555,7 @@ void* thread_S()
                     }
                 }
 
-                /* Step 2: send new unsent packets */
+                /* send new unsent packets */
                 for (int j = SM[i].swnd.base, cnt = 0; cnt < send_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                     if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] == -1) {
 
@@ -575,7 +575,7 @@ void* thread_S()
                     }
                 }
 
-                /* Step 3: local close after all data drained */
+                /* local close after all data drained */
                 if (SM[i].is_closed && all_sent_and_acked(&SM[i])) {
                     close_socket(i, &SM[i]);
                 }

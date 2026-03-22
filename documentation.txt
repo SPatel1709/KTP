@@ -1,0 +1,354 @@
+================================================================================
+SECTION 1: DATA STRUCTURES (ksocket.h)
+================================================================================
+
+--------------------------------------------------------------------------------
+Constants
+--------------------------------------------------------------------------------
+
+SOCK_KTP     9999   Custom socket type identifier for KTP sockets.
+T            5      Retransmission timeout in seconds.
+p            0.40   Drop probability used in drop_message() simulation.
+MSG_SIZE     512    Payload size in bytes per KTP message.
+MSG_TYPE     6      Length in bytes of the ASCII type field in the header.
+HEADER_SIZE  8      Total header: MSG_TYPE + 1 byte seq + 1 byte rwnd.
+PKT_SIZE     520    Total on-wire packet size: MSG_SIZE + HEADER_SIZE.
+BUFFSIZE     10     Number of circular buffer slots (send and receive).
+WINDOW_SIZE  10     Maximum sliding window size.
+NUM_SOCKETS  10     Maximum number of simultaneous active KTP sockets.
+MAX_SEQ      255    Maximum sequence number. It will wrap around
+FTOK_FILE           File path used with ftok() to generate the shared memory key.
+
+--------------------------------------------------------------------------------
+error_t (enum)
+--------------------------------------------------------------------------------
+
+Global error code stored in g_error, set by library functions on failure.
+
+  ENOSPACE    No free SM slot available, or the send buffer is full.
+  ENOMESSAGE  Receive buffer is empty; no message is available yet.
+  ENOTBOUND   Destination IP/Port does not match the bound address.
+  NOERROR     Default state; no error has occurred.
+
+--------------------------------------------------------------------------------
+packet_type_t (enum)
+--------------------------------------------------------------------------------
+
+Message types.
+
+  DATA     "DATA"  Carries a 512-byte payload from sender to receiver.
+  ACK      "ACK"  Acknowledgement
+
+--------------------------------------------------------------------------------
+window_t (struct)
+--------------------------------------------------------------------------------
+
+Sliding-window struct to maintain the incoming and outgoing messages
+
+  base             int        Circular-buffer index of the oldest unACK'd slot
+                              (swnd) or oldest expected slot (rwnd).
+  size             uint8_t    Advertised window size. swnd=receiver's rwnd. 
+                              Rwnd=free buffer available.
+  used             uint8_t    Number of in-flight packets (sent, not yet ACK'd).
+                              Only for swnd.
+  nxt_seq_num      uint8_t    Next sequence number to assign to a new packet.
+  last_ack         uint8_t    Last cumulative sequence number ACK'd (swnd) or
+                              sent as ACK (rwnd).
+  msg_seq_num[]    uint8_t    Array[WINDOW_SIZE]. Sequence number of the packet
+                              at each circular-buffer slot.
+  recv_ack[]       bool       Array[WINDOW_SIZE]. True if the packet at that
+                              slot has been received. Used by rwnd.
+  timeout[]        time_t     Array[WINDOW_SIZE]. Absolute expiry time for each
+                              in-flight packet. -1 means unsent or already ACK'd.
+
+--------------------------------------------------------------------------------
+ktp_socket_t (struct)
+--------------------------------------------------------------------------------
+Used for initialising the shared memory with the information of sender receiver
+along with their buffers.
+
+  is_free              bool          True when the slot is available for k_socket().
+  is_closed            bool          Set by k_close(); Thread S drains data before
+                                     the slot is freed.
+  is_bound             bool          True after Thread R creates and binds the UDP
+                                     socket for this slot.
+  no_space             bool          Set when the receive buffer is completely full.
+                                     Thread R sends a probe ACK when space reopens.
+  pid                  pid_t         PID of the owning user process. Used by the
+                                     garbage collector to detect dead processes.
+  sockfd               int           File descriptor of the underlying UDP socket,
+                                     created and managed by Thread R.
+  src_addr             sockaddr_in   Local IP and port, populated by k_bind().
+  dest_addr            sockaddr_in   Remote peer IP and port, populated by k_bind().
+  send_buffer_empty[]  bool          Array[BUFFSIZE]. True means the corresponding
+                                     send_buffer slot is free.
+  send_buffer[][]      char          Circular send buffer [BUFFSIZE][PKT_SIZE].
+                                     Written by k_sendto(), transmitted by Thread S.
+  recv_buffer[][]      char          Circular receive buffer [BUFFSIZE][PKT_SIZE].
+                                     Written by Thread R, read by k_recvfrom().
+  swnd                 window_t      Sender sliding-window state.
+  rwnd                 window_t      Receiver sliding-window state.
+
+
+================================================================================
+SECTION 2: FUNCTIONS IN ksocket.c
+================================================================================
+
+--------------------------------------------------------------------------------
+init_window()
+--------------------------------------------------------------------------------
+
+Returns a window_t initialised to its default state. Here the nxt_seq_num is 
+assigned WINDOW_SIZE+1 but that is only for receiver for sender it is overridden
+to 1.
+
+--------------------------------------------------------------------------------
+k_socket(domain, type, protocol)
+--------------------------------------------------------------------------------
+
+Allocates a free KTP socket slot in shared memory. Verifies type==SOCK_KTP and
+domain==AF_INET, then attaches SM and iterates slots. On finding a free slot, 
+initialises all fields (flags, addresses, buffers, swnd, rwnd) and returns the 
+slot index as the KTP socket descriptor. Returns -1 with g_error=ENOSPACE if no 
+free slot is available.
+
+--------------------------------------------------------------------------------
+k_bind(fd, src_ip, src_port, dest_ip, dest_port)
+--------------------------------------------------------------------------------
+
+Stores source and destination address information into SM[fd]. Fills src_addr
+with src_ip/src_port and dest_addr with dest_ip/dest_port. The actual OS-level
+socket() and bind() calls are deferred to Thread R. Returns 0 on success.
+
+--------------------------------------------------------------------------------
+k_sendto(fd, buf, n, dest_addr, addr_len)
+--------------------------------------------------------------------------------
+
+Writes a message into the send-side circular buffer for slot fd. Verifies the
+destination matches the bound address (ENOTBOUND on mismatch), checks buffer
+space (ENOSPACE if full), finds the first empty slot from swnd.base, copies up
+to MSG_SIZE bytes, marks the slot non-empty with timeout=-1 (not yet sent).
+Transmission is handled asynchronously by Thread S. Returns bytes written or -1.
+
+--------------------------------------------------------------------------------
+k_recvfrom(fd, buf, n, addr, addr_len)
+--------------------------------------------------------------------------------
+
+Reads the oldest in-order received message from the receive buffer. Checks
+rwnd.base: if recv_ack[base] is false, returns -1 with g_error=ENOMESSAGE.
+Otherwise copies data into buf, clears the slot, advances rwnd.base circularly,
+assigns a new expected sequence number, increments rwnd.size (one free slot
+returned). Fills addr with the peer address to make it TCP kindof. Returns bytes 
+copied or -1 on error.
+
+--------------------------------------------------------------------------------
+k_close(fd)
+--------------------------------------------------------------------------------
+
+Sets SM[fd].is_closed=true if the slot is not already free. Thread S detects
+this flag and, once all buffered data is sent and acknowledged, calls
+close_socket() to fully free the slot. Returns 0 on success, -1 if shared
+memory attach fails.
+
+--------------------------------------------------------------------------------
+k_shmget()
+--------------------------------------------------------------------------------
+
+Generates the shared memory key using ftok(FTOK_FILE, 'M') and calls shmget()
+to retrieve the existing segment ID. Returns the shmid or -1 on failure.
+
+--------------------------------------------------------------------------------
+k_shmat()
+--------------------------------------------------------------------------------
+
+Calls k_shmget() and attaches the shared memory segment with shmat(). Returns
+a pointer to the SM array, or NULL on failure.
+
+--------------------------------------------------------------------------------
+k_shmdt(SM)
+--------------------------------------------------------------------------------
+
+Detaches the shared memory segment by calling shmdt(SM). Returns the return
+value of shmdt().
+
+--------------------------------------------------------------------------------
+drop_message(P)
+--------------------------------------------------------------------------------
+
+Simulates an unreliable link. Generates a uniform random double in [0,1) via
+rand()/RAND_MAX. Returns true (drop the message) if the value is less than P,
+false otherwise. Called by Thread R after every recvfrom() to simulate loss.
+
+
+================================================================================
+SECTION 3: FUNCTIONS IN initksocket.c
+================================================================================
+
+--------------------------------------------------------------------------------
+log_error(msg)
+--------------------------------------------------------------------------------
+
+Prints msg to stderr and calls exit(EXIT_FAILURE). It is my helper function.
+
+--------------------------------------------------------------------------------
+init_Memory(num_sockets)
+--------------------------------------------------------------------------------
+
+Creates the shared memory segment and initialises per-socket mutexes. Validates
+num_sockets > 0, calls ftok() and shmget() with IPC_CREAT to create the SM
+segment of size num_sockets * sizeof(ktp_socket_t), attaches SM, sets
+SM[i].is_free=true for all i, and calls pthread_mutex_init() for each slot.
+Detaches SM after initialisation.
+
+--------------------------------------------------------------------------------
+cleanup(signo)
+--------------------------------------------------------------------------------
+
+Signal handler registered for SIGINT and SIGSEGV. Prints the total DATA
+transmission count (g_data_tx_count), removes the shared memory segment via
+shmctl(IPC_RMID), and destroys all per-socket mutexes. Prints an extra message
+for SIGSEGV. Calls exit(EXIT_SUCCESS).
+
+--------------------------------------------------------------------------------
+close_socket(sockfd, slot)
+--------------------------------------------------------------------------------
+
+Fully resets a KTP socket slot in place. Removes the UDP fd from the master
+fd_set and closes it (if the socket was bound), resets all flags (is_free,
+is_closed, is_bound, no_space), clears pid and sockfd, zeroes src_addr and
+dest_addr, marks all send/receive buffer slots as empty and zeroes their
+contents, re-initialises swnd and rwnd via init_window().
+
+--------------------------------------------------------------------------------
+check_timeout(slot)
+--------------------------------------------------------------------------------
+
+Returns true if the packet at swnd.base has an active timeout (timeout != -1)
+and the current wall-clock time has reached or passed that deadline. Used by
+Thread S to decide when to trigger retransmission.
+
+--------------------------------------------------------------------------------
+get_msg_type(msg_type)
+--------------------------------------------------------------------------------
+
+Maps a packet_type_t enum value to its corresponding 6-character ASCII wire
+string: "DATA", "ACK". Returns NULL for unrecognised types.
+
+--------------------------------------------------------------------------------
+send_pkt(sockfd, dest_addr, msg_type, seq, rwnd, msg)
+--------------------------------------------------------------------------------
+
+Builds and transmits a single KTP packet over the underlying UDP socket. Packet
+layout: [6 bytes type][1 byte seq][1 byte rwnd][512 bytes payload]. If msg is
+NULL, the payload field is left zeroed (used for ACK). Calls sendto() on the UDP 
+socket. Returns bytes sent or -1 on error.
+
+--------------------------------------------------------------------------------
+get_message(buf, type, seq, rwnd, msg)
+--------------------------------------------------------------------------------
+
+Parses a raw received packet buffer into its constituent fields. Extracts the
+null-terminated type string, sequence number, advertised rwnd, and payload.
+This is the inverse of the encoding performed by send_pkt().
+
+--------------------------------------------------------------------------------
+handle_ack(slot, seq, rwnd)
+--------------------------------------------------------------------------------
+
+Processes an incoming ACK on the sender side. Searches the in-flight window for
+a slot whose msg_seq_num matches seq. Performs cumulative acknowledgement: frees
+all slots from swnd.base through the found slot, advances swnd.base, decrements
+swnd.used. Unconditionally updates swnd.size to the piggybacked rwnd value, even
+when rwnd=0 (zero-window condition handled by Thread S probe logic).
+
+--------------------------------------------------------------------------------
+handle_data(slot, slot_idx, seq, msg)
+--------------------------------------------------------------------------------
+
+Processes an incoming DATA packet on the receiver side. Searches rwnd for a slot
+matching seq. If seq is outside the window, resends the last ACK and returns. If
+the slot is already marked received (duplicate), resends the last ACK. Otherwise
+stores the payload in recv_buffer, marks recv_ack=true, decrements rwnd.size,
+and sets no_space if rwnd.size reaches zero. Computes the longest contiguous
+prefix of received packets from rwnd.base; if extended, updates rwnd.last_ack
+and sends a cumulative ACK with the current rwnd size piggybacked. Out-of-order
+packets within the window are buffered silently without sending an ACK.
+
+--------------------------------------------------------------------------------
+handle_buffer(slot, slot_idx, recv_bytes, buffer, send_addr)
+--------------------------------------------------------------------------------
+
+Dispatcher called by Thread R for each received packet. Returns immediately if
+recv_bytes < 0 or if the slot is not bound. Validates that the sender's address
+matches dest_addr, discarding packets from unexpected sources. Calls get_message()
+to parse the packet. Calls drop_message(p); if it returns true, logs the drop
+and returns without further processing. Otherwise dispatches to handle_data(),
+handle_ack(), or close_socket() based on the type string.
+
+--------------------------------------------------------------------------------
+socket_bind(slot, master, maxfd)
+--------------------------------------------------------------------------------
+
+Creates the underlying UDP socket and binds it for a KTP slot. Calls
+socket(AF_INET, SOCK_DGRAM, 0) and bind() using slot->src_addr. Stores the
+resulting fd in slot->sockfd, adds the fd to the master fd_set, updates *maxfd,
+and sets slot->is_bound=true. Returns 0 on success, -1 on failure.
+
+--------------------------------------------------------------------------------
+thread_R() [Thread]
+--------------------------------------------------------------------------------
+
+The Receiver thread; runs for the lifetime of the init process. Maintains a
+master fd_set of all currently bound UDP sockets. Calls select() with a 100 ms
+timeout. On each wake-up:
+  (a) If data arrived on any socket, calls recvfrom() and dispatches to
+      handle_buffer() for the matching SM slot.
+  (b) If no data arrived, scans for unbound but allocated slots and calls
+      socket_bind() to create and register their UDP sockets.
+  (c) Checks the no_space flag: if a slot had no_space set but rwnd.size is
+      now greater than zero sends a probing ACK carrying the updated rwnd 
+      to unblock the remote sender.
+
+--------------------------------------------------------------------------------
+all_sent_and_acked(slot) [helper]
+--------------------------------------------------------------------------------
+
+Returns 1 if all send_buffer slots for the given socket are empty, meaning all
+data has been transmitted and acknowledged. Returns 0 otherwise. Used by Thread S
+to decide when to finalise a deferred close.
+
+--------------------------------------------------------------------------------
+thread_S() [Thread]
+--------------------------------------------------------------------------------
+
+The Sender and Retransmission thread; runs for the lifetime of the init process.
+Sleeps T/2 seconds between iterations. On each wake-up, for every active KTP
+socket:
+
+  Step 0 - Zero-window probe: If swnd.size=0 but packets are in-flight and the
+  base packet has timed out, retransmit the base packet alone to prevent deadlock
+  when the receiver's buffer is full.
+
+  Step 1 - Retransmission: Scans all in-flight slots. If any packet's timeout
+  has expired, retransmits ALL currently in-flight packets and resets their
+  timeouts to now+T.
+
+  Step 2 - New transmissions: For slots within swnd.size that are occupied but
+  have timeout=-1 (not yet sent), assigns a new sequence number, calls send_pkt(),
+  sets timeout=now+T, and increments swnd.used.
+
+  Step 3 - Deferred close: If is_closed is true and all_sent_and_acked() returns
+  true, calls close_socket() to free the slot.
+
+Increments g_data_tx_count for every DATA packet transmitted.
+
+--------------------------------------------------------------------------------
+thread_Garbage() [Thread]
+--------------------------------------------------------------------------------
+
+The Garbage Collector thread. Sleeps T seconds between iterations. For each
+allocated, non-closed KTP socket, calls kill(SM[i].pid, 0) to check whether the
+owning process is still alive. If the process no longer exists (kill returns -1),
+sets is_closed=true, allowing Thread S to drain and free the slot. This prevents
+resource leaks when user processes terminate without calling k_close().
+
