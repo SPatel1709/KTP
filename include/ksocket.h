@@ -26,7 +26,7 @@
 
 #define SOCK_KTP 9999
 #define T 5
-#define p 0.40f
+#define p 0.5f
 #define MSG_SIZE 512
 #define MSG_TYPE 6
 #define HEADER_SIZE (sizeof(u_int8_t)+sizeof(u_int8_t)+MSG_TYPE)
@@ -60,7 +60,7 @@ extern pthread_mutex_t mutex_socket[NUM_SOCKETS];
 /*Here is the definition of the structure for sliding window implementation*/
 typedef struct{
     int base;
-    u_int16_t size;
+    u_int8_t size;
     u_int8_t used;
     u_int8_t nxt_seq_num;
     u_int8_t last_ack;// this is useful for the receiver
