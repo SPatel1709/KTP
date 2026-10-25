@@ -232,6 +232,8 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
             slot->no_space = true;
     }
 
+    // finds the smallest seq packet whose next packet is not acked
+    // 1 2 3 X X 6 then last_contig=3.
     int last_contig = -1;
     for (int cnt = 0; cnt < WINDOW_SIZE; ++cnt) {
         int i = (slot->rwnd.base + cnt) % WINDOW_SIZE;
@@ -239,6 +241,9 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
         last_contig = i;
     }
 
+    // meaning base packet is not yet recieved.
+
+    // faulty as we need to ack even if we received any msg. And not ack only when we received stale data.
     if (last_contig == -1) {
         if (duplicate) {
             if (slot->rwnd.last_ack != 0 &&
