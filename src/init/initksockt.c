@@ -255,8 +255,10 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
         return;
     }
 
+    // we ack last in order recieved data and not the expecting packet.
+    // so if we received till packet 2 and expecting pkt 3 then we ack 2.
     uint8_t new_last_ack = slot->rwnd.msg_seq_num[last_contig];
-
+    
     if (new_last_ack != slot->rwnd.last_ack || duplicate) {
         slot->rwnd.last_ack = new_last_ack;
 
