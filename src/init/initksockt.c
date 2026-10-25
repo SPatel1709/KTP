@@ -207,6 +207,8 @@ void handle_data(ktp_socket_t *slot, int slot_idx, uint8_t seq, char *msg)
         }
     }
 
+    // if we can't find the ack then the ACK is of old data
+    // so if the last ack exists then we send last ack again.
     if (found_idx == -1) {
         if (slot->rwnd.last_ack != 0 &&
             send_pkt(slot->sockfd, &(slot->dest_addr), ACK,
