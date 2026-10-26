@@ -374,12 +374,14 @@ void* thread_R(){
 
         select(max_fd+1,&read_set,NULL,NULL,&timeout);
 
-
         int recv_socket=-1;
         ssize_t recv_bytes=-1;
         struct sockaddr_in send_addr;
         socklen_t addr_len=sizeof(send_addr);
 
+         // bad design we are handling one only change at a time. 
+         // 1. We should handle all socket reads together
+         // 2. If we receive any data then we don't process unbounded socket. We should handle read data and unbounded sockets all in one.
         for(int i=0;i<NUM_SOCKETS;++i)
         {
             pthread_mutex_lock(&mutex_socket[i]);
@@ -400,6 +402,7 @@ void* thread_R(){
         }
 
         // No socket was bounded if it was not free
+        // This has to be merged with the loop above to increase synchro.
         if(recv_socket==-1)
         {
             for(int i=0;i<NUM_SOCKETS;++i)
