@@ -463,10 +463,15 @@ void* thread_S()
 
             if (!SM[i].is_free && SM[i].is_bound) {
                 time_t now = time(NULL);
-                int sent_span = SM[i].swnd.used;
+                int sent_span = SM[i].swnd.used; // sent packets that are in flight.
                 int send_span = SM[i].swnd.size;
 
                 /* probe if rwnd=0 but data is waiting */
+
+                // -SPatel
+                // Think if rwnd=0 and no packets in flight then we won't even be able to send probe pkt!!
+
+                // We need to implement case where sent_span==0 and do Timeer based probing that is missing here.
                 if (send_span == 0 && sent_span > 0) {
                     int j = SM[i].swnd.base;
                     if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] != -1 && now >= SM[i].swnd.timeout[j]) {
@@ -507,6 +512,9 @@ void* thread_S()
                 for (int j = SM[i].swnd.base, cnt = 0; cnt < send_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                     if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] == -1) {
 
+                        // a better way is to do msg_seq_num[i]=msg_seq_num[i]+WINDOW_SIZE
+                        // doing that we can ensure that order remains valid.
+                        // Tho as we are assigning pkt seq in order so it works "HERE".
                         SM[i].swnd.msg_seq_num[j] = SM[i].swnd.nxt_seq_num;
                         SM[i].swnd.nxt_seq_num = SM[i].swnd.nxt_seq_num % MAX_SEQ + 1;
 
