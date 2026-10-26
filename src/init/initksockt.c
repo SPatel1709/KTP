@@ -419,13 +419,13 @@ void* thread_R(){
                         }
                     }
 
-
                     else if(SM[i].no_space && SM[i].rwnd.size>0)
                     {
                         time_t now = time(NULL);
+                        // we are using g_wnd_update_next because there are chances that ACK gets lost and as ThreadR runs again and again
+                        // we don't want it to flood acks
                         if (SM[i].rwnd.last_ack != 0 && now >= g_wnd_update_next[i]) {
-                            int ack_bytes = send_pkt(SM[i].sockfd, &SM[i].dest_addr, ACK,
-                                                     SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL);
+                            int ack_bytes = send_pkt(SM[i].sockfd, &SM[i].dest_addr, ACK,SM[i].rwnd.last_ack, SM[i].rwnd.size, NULL);
 
                             if(ack_bytes<0)
                             {
@@ -441,78 +441,6 @@ void* thread_R(){
      }
 }
 
-// void* thread_S(void* args){
-//     ktp_socket_t* SM=k_shmat();
-//     while(1){
-//         sleep(T/2);
-//         for(int i=0;i<NUM_SOCKETS;i++){//check for any socket that is not free and is bound
-//             pthread_mutex_lock(&mutex_socket[i]);
-//             if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
-//                 int timeout=check_timeout(&SM[i]);
-//                 if(timeout){
-//                     // now travwrse the window and resend all the messages that are not acked
-//                     for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
-//                         //send all the messages, no need to check for ack
-//                         if(SM[i].swnd.timeout[j]!=-1){
-//                             printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-//                             int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
-//                             SM[i].swnd.msg_seq_num[j],0/*not sending rwnd in data msg*/, SM[i].send_buffer[j]);//implemented now
-//                         }
-//                         SM[i].swnd.timeout[j]=time(NULL)+T;//next timeout after T secs
-//                     }
-//                 }
-//             }
-//             else if(!SM[i].is_free && SM[i].is_bound && SM[i].is_closed){
-//                 // for sending the FIN packet
-//                 // this thread sends FIN, and thread R will send FIN-ACK
-//                 if(SM[i].fin_timeout==-1){
-//                     // first fin send
-//                     printf("[THREAD S]: Sending FIN for Ksocket %d\n",i);
-//                     int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN, 
-//                             SM[i].swnd.last_ack,SM[i].rwnd.size, NULL);//implemented now, null as no message
-
-//                     SM[i].fin_timeout=time(NULL); //this is not actually the timeout, variable name peace
-//                 }
-//                 else{
-//                     time_t curr=time(NULL);
-//                     if(curr-SM[i].fin_timeout>=T){
-//                         // resend fin
-//                         printf("[THREAD S]: Timeout for FIN packet for Ksocket %d\n",i);
-//                         int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, FIN, 
-//                             SM[i].swnd.last_ack,SM[i].rwnd.size, NULL); //function implemented done
-//                         SM[i].fin_timeout=curr;
-//                     }
-//                 }
-//             }
-//             pthread_mutex_unlock(&mutex_socket[i]);
-
-//         }
-//         /*It then checks the current swnd for each of the KTP sockets and determines whether there is a
-//             pending message from the sender-side message buffer that can be sent. If so, it sends that
-//             message through the UDP sendto() call for the corresponding UDP socket and updates the
-//             send timestamp.*/
-//         // i forgot to implement this, implementing this below
-//         for(int i=0;i<NUM_SOCKETS;i++){
-//             pthread_mutex_lock(&mutex_socket[i]);
-//             if(!SM[i].is_free && SM[i].is_bound && !SM[i].is_closed){
-//                 for(int j=SM[i].swnd.base,cnt=0;cnt<SM[i].swnd.size;j=(j+1)%WINDOW_SIZE,cnt++){
-//                     if(SM[i].swnd.timeout[j]==-1)
-//                     {
-//                         // if the message has not been sent before, send it and set the timeout
-//                         printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",i,SM[i].swnd.msg_seq_num[j]);
-//                         int send_bytes=send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA, 
-//                             SM[i].swnd.msg_seq_num[j],0/* not sending rwnd in data*/, SM[i].send_buffer[j]);
-//                         SM[i].swnd.timeout[j]=time(NULL)+T;//
-//                     }
-//                 }
-//             }
-//             pthread_mutex_unlock(&mutex_socket[i]); 
-//         }
-
-//     }
-// }
-
-
 static int all_sent_and_acked(const ktp_socket_t *slot)
 {
     for (int i = 0; i < BUFFSIZE; ++i) {
@@ -527,6 +455,7 @@ void* thread_S()
     if (SM == NULL) return NULL;
 
     while (1) {
+        // we sleep for T/2 time and then we scan all the sockets and if there is any data then we send it.
         sleep(T / 2);
 
         for (int i = 0; i < NUM_SOCKETS; ++i) {
@@ -540,12 +469,10 @@ void* thread_S()
                 /* probe if rwnd=0 but data is waiting */
                 if (send_span == 0 && sent_span > 0) {
                     int j = SM[i].swnd.base;
-                    if (!SM[i].send_buffer_empty[j] &&
-                        SM[i].swnd.timeout[j] != -1 &&
-                        now >= SM[i].swnd.timeout[j]) {
-                        if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
-                                     SM[i].swnd.msg_seq_num[j], 0,
-                                     SM[i].send_buffer[j]) >= 0) {
+                    if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] != -1 && now >= SM[i].swnd.timeout[j]) {
+                        
+                        if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,SM[i].swnd.msg_seq_num[j], 0,SM[i].send_buffer[j]) >= 0) {
+                            
                             SM[i].swnd.timeout[j] = now + ZW_UPDATE_RETRY_SEC;
                         }
                     }
@@ -556,9 +483,7 @@ void* thread_S()
                 /* retransmit timed-out sent packets */
                 int timed_out = 0;
                 for (int j = SM[i].swnd.base, cnt = 0; cnt < sent_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
-                    if (!SM[i].send_buffer_empty[j] &&
-                        SM[i].swnd.timeout[j] != -1 &&
-                        now >= SM[i].swnd.timeout[j]) {
+                    if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] != -1 && now >= SM[i].swnd.timeout[j]) {
                         timed_out = 1;
                         break;
                     }
@@ -567,11 +492,11 @@ void* thread_S()
                 if (timed_out) {
                     for (int j = SM[i].swnd.base, cnt = 0; cnt < sent_span; j = (j + 1) % WINDOW_SIZE, ++cnt) {
                         if (!SM[i].send_buffer_empty[j] && SM[i].swnd.timeout[j] != -1) {
-                            printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",
-                                   i, SM[i].swnd.msg_seq_num[j]);
-                            if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
-                                         SM[i].swnd.msg_seq_num[j], 0,
-                                         SM[i].send_buffer[j]) >= 0) {
+                            
+                            printf("[THREAD S]: Timeout for Ksocket %d Seq: %d\n",i, SM[i].swnd.msg_seq_num[j]);
+                            
+                            if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,SM[i].swnd.msg_seq_num[j], 0,SM[i].send_buffer[j]) >= 0) {
+                               
                                 SM[i].swnd.timeout[j] = now + T;
                             }
                         }
@@ -585,12 +510,10 @@ void* thread_S()
                         SM[i].swnd.msg_seq_num[j] = SM[i].swnd.nxt_seq_num;
                         SM[i].swnd.nxt_seq_num = SM[i].swnd.nxt_seq_num % MAX_SEQ + 1;
 
-                        printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n",
-                               i, SM[i].swnd.msg_seq_num[j]);
+                        printf("[THREAD S]: Sending message for Ksocket %d Seq: %d\n", i, SM[i].swnd.msg_seq_num[j]);
 
-                        if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,
-                                     SM[i].swnd.msg_seq_num[j], 0,
-                                     SM[i].send_buffer[j]) >= 0) {
+                        if (send_pkt(SM[i].sockfd, &SM[i].dest_addr, DATA,SM[i].swnd.msg_seq_num[j], 0,SM[i].send_buffer[j]) >= 0) {
+                            
                             SM[i].swnd.timeout[j] = now + T;
                             SM[i].swnd.used++;
                         }
